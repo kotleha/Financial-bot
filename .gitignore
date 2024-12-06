@@ -1,0 +1,11 @@
+# Игнорирование папки __pycache__
+__pycache__/
+
+# Игнорирование папки .history
+.history/
+
+# Игнорирование файла .env
+.env
+
+# Игнорирование файла table-money-8ae6e0a39eab.json
+table-money-8ae6e0a39eab.json

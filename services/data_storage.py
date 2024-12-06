@@ -10,7 +10,7 @@ def save_income_to_csv(amount, category, status, description):
 
 # Функция для сохранения в Google Sheets
 def save_income_to_sheets(amount, category, status, description):
-    creds = Credentials.from_service_account_file('path/to/your/credentials.json', scopes=["https://www.googleapis.com/auth/spreadsheets"])
+    creds = Credentials.from_service_account_file('/home/sexxlexx/Desktop/Financial-Bot/table-money-8ae6e0a39eab.json', scopes=["https://www.googleapis.com/auth/spreadsheets"])
     service = build('sheets', 'v4', credentials=creds)
     
     spreadsheet_id = 'your_spreadsheet_id'
