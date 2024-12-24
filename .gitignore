@@ -9,3 +9,6 @@ __pycache__/
 
 # Игнорирование файла table-money-8ae6e0a39eab.json
 table-money-8ae6e0a39eab.json
+
+# Игнорирование локальной базы данных
+[0-9][0-9]_*.csv
