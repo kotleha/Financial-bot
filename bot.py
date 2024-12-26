@@ -8,7 +8,7 @@ from aiogram.filters import Command, StateFilter
 from handlers.start_handler import start_handler
 from handlers.income_handler import IncomeState, add_income, income_category_selected, income_amount_entered, income_description_entered
 from handlers.expense_handler import ExpenseState, add_expense, expense_category_selected, expense_amount_entered, expense_description_entered
-from handlers.report_handler import report_select_period_step1, handle_report_start_year, handle_report_start_month, handle_report_end_year, handle_report_end_month
+from handlers.report_handler import report_select_period_step1, handle_report_start_year, handle_report_start_month, handle_report_end_year, handle_report_end_month, register_handlers, handle_additional_reports
 from handlers.export_handler import export_data_step1, handle_start_year, handle_start_month, handle_end_year, handle_end_month
 
 # Настройка логирования
@@ -48,6 +48,8 @@ dp.callback_query.register(handle_start_year, lambda c: c.data.startswith("start
 dp.callback_query.register(handle_start_month, lambda c: c.data.startswith("start_month_") and not c.data.startswith("start_month_report_"))
 dp.callback_query.register(handle_end_year, lambda c: c.data.startswith("end_year_") and not c.data.startswith("end_year_report_"))
 dp.callback_query.register(handle_end_month, lambda c: c.data.startswith("end_month_") and not c.data.startswith("end_month_report_"))
+dp.callback_query.register(handle_additional_reports, lambda c: c.data == 'additional_reports')
+register_handlers(dp)
 
 async def main():
     await dp.start_polling(bot, storage=storage)

@@ -5,10 +5,11 @@ import io
 import logging
 import uuid
 import tempfile  # Imported tempfile
-from datetime import datetime
+import calendar
+from datetime import datetime, date
 from aiogram import types
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import InlineKeyboardButton, FSInputFile
 from aiogram import Dispatcher
 
 # Настройка логирования
@@ -71,33 +72,25 @@ def analyze_report_available_data():
 
 
 def generate_report_year_buttons(years, callback_prefix="start_year_report"):
-    """
-    Генерирует кнопки для выбора года.
-    """
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+    builder = InlineKeyboardBuilder()
     for year in sorted(years.keys()):
-        keyboard.inline_keyboard.append([
-            InlineKeyboardButton(
-                text=year,
-                callback_data=f"{callback_prefix}_{year}"
-            )
-        ])
-    return keyboard
+        builder.button(
+            text=year,
+            callback_data=f"{callback_prefix}_{year}"
+        )
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def generate_report_month_buttons(year, months, callback_prefix="start_month_report"):
-    """
-    Генерирует кнопки для выбора месяца.
-    """
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+    builder = InlineKeyboardBuilder()
     for month_number, month_name in months:
-        keyboard.inline_keyboard.append([
-            InlineKeyboardButton(
-                text=f"{month_name} ({month_number})",
-                callback_data=f"{callback_prefix}_{year}_{month_number}"
-            )
-        ])
-    return keyboard
+        builder.button(
+            text=f"{month_name} ({month_number})",
+            callback_data=f"{callback_prefix}_{year}_{month_number}"
+        )
+    builder.adjust(3)  
+    return builder.as_markup()
 
 
 async def report_select_period_step1(message: types.Message):
@@ -320,10 +313,15 @@ def load_report_data():
 
     # Преобразование столбца 'Сумма'
     try:
-        data["Сумма"] = data["Сумма"].str.replace("р.", "", regex=False) \
-                                   .str.replace("\xa0", "", regex=False) \
-                                   .str.replace(",", ".", regex=False) \
-                                   .astype(float)
+        data["Сумма"] = (
+            data["Сумма"]
+            .astype(str)
+            .str.replace("р.", "", regex=False)
+            .str.replace("\xa0", "", regex=False)
+            .str.replace(" ", "", regex=False)  # <-- убираем обычный пробел
+            .str.replace(",", ".", regex=False)
+            .astype(float)
+        )
     except KeyError:
         logging.error("Столбец 'Сумма' отсутствует в данных.")
         raise
@@ -343,13 +341,16 @@ async def generate_report(message: types.Message, start_year, start_month, end_y
         await message.answer("❌ **Нет данных для генерации отчета.**")
         return
 
+    start_date = date(int(start_year), int(start_month), 1)  # 1-е число начального месяца
+
+    last_day = calendar.monthrange(int(end_year), int(end_month))[1]  
+    end_date = date(int(end_year), int(end_month), last_day)
+
     # Фильтруем данные по периоду
     try:
         data = data[
-            (data["Дата"].dt.year >= int(start_year)) &
-            (data["Дата"].dt.year <= int(end_year)) &
-            (data["Дата"].dt.month >= int(start_month)) &
-            (data["Дата"].dt.month <= int(end_month))
+            (data["Дата"].dt.date >= start_date) &
+            (data["Дата"].dt.date <= end_date)
         ]
     except KeyError as e:
         logging.error(f"Отсутствует столбец при фильтрации данных: {e}")
@@ -642,7 +643,7 @@ async def generate_report(message: types.Message, start_year, start_month, end_y
     await message.answer("📋 Выберите дополнительные отчёты для просмотра:", reply_markup=inline_kb)
     
 def register_handlers(dp: Dispatcher):
-    dp.register_callback_query_handler(handle_additional_reports, lambda c: c.data == 'additional_reports')
+    dp.callback_query.register(handle_additional_reports, lambda c: c.data == 'additional_reports')
     
 async def handle_additional_reports(callback_query: types.CallbackQuery):
     """
@@ -723,6 +724,9 @@ async def handle_additional_reports(callback_query: types.CallbackQuery):
         expense_categories = data[data["Тип"] == "расход"].groupby("Категория")["Сумма"].sum()
         expense_ratios = (expense_categories / total_income) * 100 if total_income != 0 else pd.Series()
 
+        # Сортируем по убыванию (от большего к меньшему)
+        expense_ratios = expense_ratios.sort_values(ascending=False)
+
         # Визуализация
         fig, ax = plt.subplots(figsize=(10, 6))
         expense_ratios.plot(kind='bar', color='orange', ax=ax)
@@ -738,10 +742,10 @@ async def handle_additional_reports(callback_query: types.CallbackQuery):
         # Создание объекта FSInputFile
         input_file = FSInputFile(file_path)
 
-        # Отправка изображения
+        # Отправка изображения сначала
         await callback_query.message.answer_photo(input_file)
 
-        # Формирование текстового отчёта
+        # Формирование текстового отчёта (по уже отсортированным данным)
         expense_ratio_report = "<b>📊 Коэффициент Расходов по Категориям:</b>\n"
         for category, ratio in expense_ratios.items():
             expense_ratio_report += f"• {category}: <b>{ratio:.2f}%</b>\n"
@@ -783,7 +787,7 @@ async def handle_additional_reports(callback_query: types.CallbackQuery):
         ax.set_ylabel("Сумма (р.)")
         ax.legend()
         ax.grid(True, linestyle='--', alpha=0.7)
-        plt.xticks(rotation=45)
+        plt.xticks(rotation=90)
         plt.tight_layout()
 
         # Сохранение графика во временный файл
@@ -792,21 +796,8 @@ async def handle_additional_reports(callback_query: types.CallbackQuery):
         # Создание объекта FSInputFile
         input_file = FSInputFile(file_path)
 
-        # Отправка изображения
+        # Отправка изображения (только график, без текстового отчёта)
         await callback_query.message.answer_photo(input_file)
-
-        # Формирование текстового отчёта
-        daily_cash_report = "📅 <b>Ежедневный Cash Flow:</b>\n"
-        for date, row in daily_cash.iterrows():
-            daily_cash_report += (
-                f"• <b>{date.strftime('%d.%m.%Y')}</b>:\n"
-                f"    Доход: <b>{row['Доход']:,.2f}</b> р.\n"
-                f"    Расход: <b>{row['Расход']:,.2f}</b> р.\n"
-                f"    Баланс: <b>{row['Баланс']:,.2f}</b> р.\n"
-            )
-
-        # Отправка текста после изображения
-        await callback_query.message.answer(daily_cash_report, parse_mode="HTML")
 
         # Удаление временного файла
         try:
@@ -834,26 +825,8 @@ async def handle_additional_reports(callback_query: types.CallbackQuery):
         # Выявление необычных расходов
         unusual_expenses = expense_categories[expense_categories > threshold]
 
-        # Визуализация
-        fig, ax = plt.subplots(figsize=(10, 6))
-        expense_categories.plot(kind='bar', color='skyblue', ax=ax, label='Расходы')
-        if not unusual_expenses.empty:
-            unusual_expenses.plot(kind='bar', color='red', ax=ax, label='Необычные Расходы')
-        ax.set_title("Расходы по Категориям с Необычными Расходами")
-        ax.set_xlabel("Категория")
-        ax.set_ylabel("Сумма (р.)")
-        ax.legend()
-        ax.grid(True, linestyle='--', alpha=0.7)
-        plt.tight_layout()
-
-        # Сохранение графика во временный файл
-        file_path = save_plot_to_tempfile(fig, "unusual_expenses")
-
-        # Создание объекта FSInputFile
-        input_file = FSInputFile(file_path)
-
-        # Отправка изображения
-        await callback_query.message.answer_photo(input_file)
+        # Убираем визуализацию и работу с файлом
+        # (весь блок fig, ax, expense_categories.plot(...), save_plot_to_tempfile(...), и т.п.)
 
         # Формирование текстового отчёта
         if not unusual_expenses.empty:
@@ -863,14 +836,8 @@ async def handle_additional_reports(callback_query: types.CallbackQuery):
         else:
             unusual_report = "<b>✅ Не обнаружено необычных расходов.</b>"
 
-        # Отправка текста после изображения
+        # Отправка ТОЛЬКО текста (без графика)
         await callback_query.message.answer(unusual_report, parse_mode="HTML")
-
-        # Удаление временного файла
-        try:
-            os.remove(file_path)
-        except Exception as e:
-            logging.error(f"Ошибка при удалении временного файла '{file_path}': {e}")
 
     except Exception as e:
         logging.error(f"Ошибка при генерации Обнаружения Необычных Расходов: {e}")
