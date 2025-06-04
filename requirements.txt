@@ -1,0 +1,5 @@
+aiogram
+pandas
+matplotlib
+python-dotenv
+google-api-python-client
