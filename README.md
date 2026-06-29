@@ -294,16 +294,19 @@ Current expense-entry commands:
 
 Bank confirmations now keep simple learned category rules: after a user confirms a bank expense
 with a merchant and category, future events from the same bank and merchant can suggest that
-category with the hint `по прошлым подтверждениям`. After repeated confirmations, active learned
-rules can record matching SMS automatically; the autosaved card has buttons to fix the category,
-mark it as an internal transfer, delete the autosaved expense, or disable the rule.
+category with the hint `по прошлым подтверждениям`. Learned rules have explicit modes:
+`только подсказка`, `автосохранение`, and `отключено`. After repeated confirmations a new rule can
+move to autosave mode; suggest-only and disabled rules never create expenses by themselves. If a
+learned rule conflicts with a parser category hint, the bot asks for confirmation instead of
+autosaving. The autosaved card has buttons to fix the category, mark it as an internal transfer,
+delete the autosaved expense, or disable the rule.
 Bank cards explain why a category was suggested: SMS parser hint, previous confirmations, or manual
 choice. Internal-transfer and income cards also state clearly that they do not affect expense
 limits or expense category charts.
 
 Learned rules can be managed from `🏦 Автоучёт` -> `🧠 Правила категорий` or from settings
 `🏦 Банки`. Each family user sees only their own rules. A rule can be opened, assigned to another
-category, disabled, or enabled again.
+category, switched between suggest-only/autosave mode, or disabled.
 
 Budget and limit reports explain the difference between a spending limit, a no-limit category, and
 a savings target. The estimated savings pool is calculated as remaining limit amounts minus

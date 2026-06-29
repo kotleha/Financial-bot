@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.types import (
+    BankCategoryRuleMode,
     BankEventOperationKind,
     BankEventParseStatus,
     BankEventSuggestionSource,
@@ -21,7 +22,9 @@ from financial_bot.app.storage.models import (
     BankEventModel,
     BankEventSourceModel,
     Base,
+    CategoryModel,
     TransactionModel,
+    UserModel,
 )
 from financial_bot.app.storage.repositories.bank_event_repository import BankEventRepository
 from sqlalchemy import func, select
@@ -795,6 +798,7 @@ async def test_confirmed_bank_event_autosaves_after_second_confirmation(
         assert len(rules) == 1
         assert rules[0].merchant_key == "unknown shop"
         assert rules[0].hit_count == 2
+        assert rules[0].mode == BankCategoryRuleMode.AUTOSAVE.value
         assert rules[0].last_used_at == datetime(2026, 6, 26, 12, 4)
 
         event = await session.get(BankEventModel, third.event_id)
@@ -815,6 +819,149 @@ async def test_confirmed_bank_event_autosaves_after_second_confirmation(
         assert autosaved_transaction.amount == 12_000
         assert transaction_count == 3
         assert pending == []
+
+
+@pytest.mark.asyncio
+async def test_suggest_only_learning_rule_requires_confirmation(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        await _add_learning_rule(
+            session,
+            telegram_id=1001,
+            merchant="UNKNOWN SHOP",
+            category_code="groceries",
+            mode=BankCategoryRuleMode.SUGGEST,
+            hit_count=3,
+        )
+        service = BankIngestionService(session, settings)
+
+        result = await service.import_manual_sms(
+            text="Счёт карты MIR-3333 11:11 Покупка 120р UNKNOWN SHOP Баланс: 654.14р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 6, 26, 12, 4, tzinfo=UTC),
+        )
+        transaction_count = await session.scalar(select(func.count()).select_from(TransactionModel))
+
+        assert result.suggested_category_code == "groceries"
+        assert result.suggested_category_source == BankEventSuggestionSource.LEARNED_RULE
+        assert result.parse_status == BankEventParseStatus.NEEDS_CONFIRMATION
+        assert result.requires_confirmation
+        assert transaction_count == 0
+
+
+@pytest.mark.asyncio
+async def test_learning_rule_parser_conflict_requires_confirmation(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        await _add_learning_rule(
+            session,
+            telegram_id=1001,
+            merchant="APTEKA TEST",
+            category_code="groceries",
+            mode=BankCategoryRuleMode.AUTOSAVE,
+            hit_count=3,
+        )
+        service = BankIngestionService(session, settings)
+
+        result = await service.import_manual_sms(
+            text="Счёт карты MIR-1111 11:09 Покупка 290р APTEKA TEST Баланс: 924.14р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
+        )
+        duplicate = await service.import_manual_sms(
+            text="Счёт карты MIR-1111 11:09 Покупка 290р APTEKA TEST Баланс: 924.14р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
+        )
+        transaction_count = await session.scalar(select(func.count()).select_from(TransactionModel))
+
+        assert result.suggested_category_code == "groceries"
+        assert result.suggested_category_source == BankEventSuggestionSource.LEARNED_RULE
+        assert result.suggestion_conflict
+        assert duplicate.is_duplicate
+        assert duplicate.suggestion_conflict
+        assert result.parse_status == BankEventParseStatus.NEEDS_CONFIRMATION
+        assert transaction_count == 0
+
+
+@pytest.mark.asyncio
+async def test_disabled_learning_rule_is_ignored(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        await _add_learning_rule(
+            session,
+            telegram_id=1001,
+            merchant="UNKNOWN SHOP",
+            category_code="groceries",
+            mode=BankCategoryRuleMode.DISABLED,
+            hit_count=3,
+        )
+        service = BankIngestionService(session, settings)
+
+        result = await service.import_manual_sms(
+            text="Счёт карты MIR-3333 11:11 Покупка 120р UNKNOWN SHOP Баланс: 654.14р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 6, 26, 12, 4, tzinfo=UTC),
+        )
+
+        assert result.suggested_category_code is None
+        assert result.suggested_category_source == BankEventSuggestionSource.NONE
+        assert result.parse_status == BankEventParseStatus.NEEDS_CONFIRMATION
+
+
+@pytest.mark.asyncio
+async def test_confirming_disabled_learning_rule_does_not_reenable_it(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        await _add_learning_rule(
+            session,
+            telegram_id=1001,
+            merchant="UNKNOWN SHOP",
+            category_code="groceries",
+            mode=BankCategoryRuleMode.DISABLED,
+            hit_count=3,
+        )
+        service = BankIngestionService(session, settings)
+        imported = await service.import_manual_sms(
+            text="Счёт карты MIR-3333 11:11 Покупка 120р UNKNOWN SHOP Баланс: 654.14р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 6, 26, 12, 4, tzinfo=UTC),
+        )
+        categories = await service.list_expense_categories()
+        groceries = next(category for category in categories if category.code == "groceries")
+        await service.update_event_category(
+            event_id=imported.event_id,
+            category_id=groceries.id,
+            telegram_user_id=1001,
+        )
+
+        confirmed = await service.confirm_event(
+            event_id=imported.event_id,
+            telegram_user_id=1001,
+        )
+        rule = (await session.scalars(select(BankCategoryRuleModel))).one()
+
+        assert confirmed.learning_rule is not None
+        assert confirmed.learning_rule.mode == BankCategoryRuleMode.DISABLED
+        assert rule.mode == BankCategoryRuleMode.DISABLED.value
+        assert rule.is_active is False
+        assert rule.hit_count == 4
 
 
 @pytest.mark.asyncio
@@ -1014,6 +1161,7 @@ async def test_autosaved_bank_event_rule_can_be_disabled_from_event_card(
 
         assert disabled.parse_status == BankEventParseStatus.AUTOSAVED
         assert rule.is_active is False
+        assert rule.mode == BankCategoryRuleMode.DISABLED.value
         assert transaction is not None
         assert transaction.deleted_at is None
 
@@ -1173,3 +1321,35 @@ async def _create_autosaved_unknown_shop_event(
     )
     assert third.parse_status == BankEventParseStatus.AUTOSAVED
     return third
+
+
+async def _add_learning_rule(
+    session: AsyncSession,
+    *,
+    telegram_id: int,
+    merchant: str,
+    category_code: str,
+    mode: BankCategoryRuleMode,
+    hit_count: int,
+) -> BankCategoryRuleModel:
+    user = await session.scalar(select(UserModel).where(UserModel.telegram_id == telegram_id))
+    category = await session.scalar(
+        select(CategoryModel).where(CategoryModel.code == category_code)
+    )
+    assert user is not None
+    assert category is not None
+
+    rule = BankCategoryRuleModel(
+        owner_user_id=user.id,
+        bank="sber",
+        merchant_key=merchant.lower(),
+        merchant_display=merchant,
+        category_id=category.id,
+        hit_count=hit_count,
+        mode=mode.value,
+        is_active=mode != BankCategoryRuleMode.DISABLED,
+        last_confirmed_at=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
+    )
+    session.add(rule)
+    await session.flush()
+    return rule

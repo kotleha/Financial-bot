@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_bot.app.domain.bank_learning import normalize_bank_merchant_key
-from financial_bot.app.domain.types import BankEventOperationKind
+from financial_bot.app.domain.types import BankCategoryRuleMode, BankEventOperationKind
 from financial_bot.app.storage.models import BankEventModel, BankEventSourceModel
 from financial_bot.app.storage.repositories.bank_category_rule_repository import (
     BankCategoryRuleRepository,
@@ -20,6 +20,8 @@ class BankLearningSuggestion:
     category_title: str
     merchant_key: str
     hit_count: int
+    mode: BankCategoryRuleMode
+    has_parser_conflict: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +31,7 @@ class BankLearningRuleFeedback:
     merchant_display: str
     category_title: str
     hit_count: int
+    mode: BankCategoryRuleMode
 
 
 class BankLearningService:
@@ -68,6 +71,7 @@ class BankLearningService:
             category_title=category.title,
             merchant_key=rule.merchant_key,
             hit_count=rule.hit_count,
+            mode=BankCategoryRuleMode(rule.mode),
         )
 
     async def learn_from_confirmed_event(
@@ -116,4 +120,5 @@ class BankLearningService:
             merchant_display=rule.merchant_display,
             category_title=category.title,
             hit_count=rule.hit_count,
+            mode=BankCategoryRuleMode(rule.mode),
         )

@@ -17,6 +17,7 @@ from financial_bot.app.bot.keyboards.bank_learning import (
     build_bank_learning_rule_actions_keyboard,
     build_bank_learning_rules_keyboard,
 )
+from financial_bot.app.domain.types import BankCategoryRuleMode
 from financial_bot.app.services.bank_learning_rule_service import BankLearningRuleService
 
 router = Router(name=__name__)
@@ -88,12 +89,18 @@ async def bank_learning_action_selected(
             )
         return
 
-    if callback_data.action in {BankLearningAction.DISABLE, BankLearningAction.ENABLE}:
+    if callback_data.action in {
+        BankLearningAction.SET_SUGGEST,
+        BankLearningAction.SET_AUTOSAVE,
+        BankLearningAction.DISABLE,
+        BankLearningAction.ENABLE,
+    }:
+        mode = _mode_from_action(callback_data.action)
         try:
-            result = await service.set_rule_active(
+            result = await service.set_rule_mode(
                 rule_id=callback_data.rule_id,
                 telegram_user_id=telegram_user_id,
-                is_active=callback_data.action == BankLearningAction.ENABLE,
+                mode=mode,
             )
             await session.commit()
         except ValueError as exc:
@@ -106,7 +113,7 @@ async def bank_learning_action_selected(
                 format_bank_learning_rule_status_updated(result),
                 reply_markup=build_bank_learning_rule_actions_keyboard(
                     rule_id=result.rule_id,
-                    is_active=result.is_active,
+                    mode=result.mode,
                 ),
             )
 
@@ -135,7 +142,7 @@ async def bank_learning_category_selected(
             format_bank_learning_rule_category_updated(result),
             reply_markup=build_bank_learning_rule_actions_keyboard(
                 rule_id=result.rule_id,
-                is_active=result.is_active,
+                mode=result.mode,
             ),
         )
 
@@ -178,6 +185,14 @@ async def _answer_rule_card(
             format_bank_learning_rule_details(details),
             reply_markup=build_bank_learning_rule_actions_keyboard(
                 rule_id=details.id,
-                is_active=details.is_active,
+                mode=details.mode,
             ),
         )
+
+
+def _mode_from_action(action: BankLearningAction) -> BankCategoryRuleMode:
+    if action == BankLearningAction.SET_AUTOSAVE:
+        return BankCategoryRuleMode.AUTOSAVE
+    if action == BankLearningAction.DISABLE:
+        return BankCategoryRuleMode.DISABLED
+    return BankCategoryRuleMode.SUGGEST

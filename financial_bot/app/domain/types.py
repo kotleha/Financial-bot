@@ -65,6 +65,12 @@ class BankEventSuggestionSource(StrEnum):
     NONE = "none"
 
 
+class BankCategoryRuleMode(StrEnum):
+    SUGGEST = "suggest"
+    AUTOSAVE = "autosave"
+    DISABLED = "disabled"
+
+
 class AuditAction(StrEnum):
     CREATE = "create"
     UPDATE = "update"

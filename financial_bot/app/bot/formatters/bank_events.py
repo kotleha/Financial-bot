@@ -7,6 +7,7 @@ from financial_bot.app.bot.formatters.context_hints import (
 )
 from financial_bot.app.domain.money import format_money_minor
 from financial_bot.app.domain.types import (
+    BankCategoryRuleMode,
     BankEventOperationKind,
     BankEventParseStatus,
     BankEventSuggestionSource,
@@ -75,6 +76,11 @@ def format_bank_import_result(result: BankImportResult) -> str:
         suggestion_hint = bank_suggestion_hint(result.suggested_category_source)
         if suggestion_hint:
             lines.append(suggestion_hint)
+        if result.suggestion_conflict:
+            lines.append(
+                "Автосохранение остановлено: SMS-подсказка и выученное правило дали разные "
+                "категории."
+            )
     if result.ignore_reason:
         lines.append(f"Причина: {result.ignore_reason}")
 
@@ -261,6 +267,17 @@ def _event_update_amount_line(result: BankEventUpdateResult) -> str:
 
 
 def _format_learning_rule_feedback(feedback: BankLearningRuleFeedback) -> tuple[str, str]:
+    if feedback.mode == BankCategoryRuleMode.DISABLED:
+        headline = (
+            "Отключённое правило не включал: "
+            f"{feedback.merchant_display} → {feedback.category_title}."
+        )
+        detail = (
+            "Для похожих SMS бот не будет применять это правило, пока вы явно не смените режим. "
+            f"{LEARNING_RULE_MANAGEMENT_HINT}"
+        )
+        return (headline, detail)
+
     if feedback.action == "created":
         headline = (
             f"Запомнил для будущих SMS: {feedback.merchant_display} → {feedback.category_title}."
@@ -272,12 +289,16 @@ def _format_learning_rule_feedback(feedback: BankLearningRuleFeedback) -> tuple[
             f"{feedback.merchant_display} → {feedback.category_title}. "
             f"Подтверждений: {feedback.hit_count}."
         )
-        detail = (
-            f"Следующие похожие SMS будут записываться автоматически. "
-            f"{LEARNING_RULE_MANAGEMENT_HINT}"
-            if feedback.hit_count >= 2
-            else f"{AUTOSAVE_AFTER_NEXT_CONFIRMATION_TEXT} {LEARNING_RULE_MANAGEMENT_HINT}"
-        )
+        if feedback.mode == BankCategoryRuleMode.AUTOSAVE and feedback.hit_count >= 2:
+            detail = (
+                f"Следующие похожие SMS будут записываться автоматически. "
+                f"{LEARNING_RULE_MANAGEMENT_HINT}"
+            )
+        else:
+            detail = (
+                "Буду предлагать эту категорию и ждать подтверждения. "
+                f"{LEARNING_RULE_MANAGEMENT_HINT}"
+            )
     else:
         headline = (
             "Обновил правило для будущих SMS: "

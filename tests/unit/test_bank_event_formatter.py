@@ -9,6 +9,7 @@ from financial_bot.app.bot.formatters.bank_events import (
     format_bank_import_result,
 )
 from financial_bot.app.domain.types import (
+    BankCategoryRuleMode,
     BankEventBank,
     BankEventOperationKind,
     BankEventParseStatus,
@@ -77,6 +78,33 @@ def test_format_bank_import_result_explains_learned_rule() -> None:
 
     assert "Категория-кандидат: Продукты (по прошлым подтверждениям)" in text
     assert "Почему так: похожего продавца уже подтверждали в этой категории." in text
+
+
+def test_format_bank_import_result_explains_learning_conflict() -> None:
+    text = format_bank_import_result(
+        BankImportResult(
+            event_id=42,
+            is_duplicate=False,
+            bank=BankEventBank.SBER,
+            operation_kind=BankEventOperationKind.EXPENSE_CANDIDATE,
+            parse_status=BankEventParseStatus.NEEDS_CONFIRMATION,
+            amount=29_000,
+            fee_amount=None,
+            currency="RUB",
+            merchant="APTEKA TEST",
+            counterparty="",
+            suggested_category_code="groceries",
+            suggested_category_title="Продукты",
+            suggested_category_source=BankEventSuggestionSource.LEARNED_RULE,
+            requires_confirmation=True,
+            ignore_reason="",
+            redacted_text="redacted",
+            suggestion_conflict=True,
+        )
+    )
+
+    assert "Автосохранение остановлено" in text
+    assert "дали разные категории" in text
 
 
 def test_format_bank_import_result_for_internal_transfer() -> None:
@@ -201,13 +229,14 @@ def test_format_bank_event_confirmed_with_created_learning_rule() -> None:
                 merchant_display="UNKNOWN SHOP",
                 category_title="Продукты",
                 hit_count=1,
+                mode=BankCategoryRuleMode.SUGGEST,
             ),
         )
     )
 
     assert "Запомнил для будущих SMS: UNKNOWN SHOP → Продукты." in text
     assert "Если подтвердите похожее SMS ещё раз" in text
-    assert "Правило можно отключить или изменить в «🧠 Правила категорий»." in text
+    assert "Режим правила можно изменить в «🧠 Правила категорий»" in text
     assert "MIR-1111" not in text
     assert "Баланс" not in text
     assert "secret" not in text
@@ -224,6 +253,7 @@ def test_format_bank_event_confirmed_with_reinforced_learning_rule() -> None:
                 merchant_display="UNKNOWN SHOP",
                 category_title="Продукты",
                 hit_count=2,
+                mode=BankCategoryRuleMode.AUTOSAVE,
             ),
         )
     )
@@ -243,12 +273,34 @@ def test_format_bank_event_confirmed_with_updated_learning_rule() -> None:
                 merchant_display="UNKNOWN SHOP",
                 category_title="Дом/Участок",
                 hit_count=1,
+                mode=BankCategoryRuleMode.SUGGEST,
             ),
         )
     )
 
     assert "Обновил правило для будущих SMS: UNKNOWN SHOP → Дом/Участок." in text
     assert "Если подтвердите похожее SMS ещё раз" in text
+
+
+def test_format_bank_event_confirmed_with_disabled_learning_rule() -> None:
+    text = format_bank_event_confirmed(
+        BankEventConfirmationResult(
+            event_id=44,
+            transaction=_created_transaction_summary(category_title="Продукты"),
+            learning_rule=BankLearningRuleFeedback(
+                rule_id=7,
+                action="reinforced",
+                merchant_display="UNKNOWN SHOP",
+                category_title="Продукты",
+                hit_count=4,
+                mode=BankCategoryRuleMode.DISABLED,
+            ),
+        )
+    )
+
+    assert "Отключённое правило не включал" in text
+    assert "не будет применять это правило" in text
+    assert "будут записываться автоматически" not in text
 
 
 def test_format_bank_event_refund_corrected() -> None:

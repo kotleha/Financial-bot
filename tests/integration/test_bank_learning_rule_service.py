@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from financial_bot.app.config import Settings
+from financial_bot.app.domain.types import BankCategoryRuleMode
 from financial_bot.app.services.bank_learning_rule_service import BankLearningRuleService
 from financial_bot.app.services.seed_service import seed_initial_data
 from financial_bot.app.storage.db import create_engine, create_session_factory
@@ -58,6 +59,7 @@ async def test_bank_learning_rules_are_scoped_to_owner(
 
         assert [rule.merchant_display for rule in husband_rules] == ["MAGNIT"]
         assert husband_rules[0].category_title == "Продукты"
+        assert husband_rules[0].mode == BankCategoryRuleMode.AUTOSAVE
         assert [rule.merchant_display for rule in wife_rules] == ["APTEKA"]
 
 
@@ -88,11 +90,50 @@ async def test_bank_learning_rule_status_and_category_can_be_changed(
         details = await service.get_rule_details(rule_id=rule.id, telegram_user_id=1001)
 
         assert not disabled.is_active
+        assert disabled.mode == BankCategoryRuleMode.DISABLED
         assert updated.old_category_title == "Продукты"
         assert updated.new_category_title == "Рестораны/Кафе"
         assert updated.is_active
+        assert updated.mode == BankCategoryRuleMode.SUGGEST
         assert details.category_title == "Рестораны/Кафе"
         assert details.is_active
+        assert details.mode == BankCategoryRuleMode.SUGGEST
+
+
+@pytest.mark.asyncio
+async def test_bank_learning_rule_mode_can_be_changed(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        await seed_initial_data(session, make_settings())
+        rule = await _add_rule(
+            session, telegram_id=1001, merchant="BAHETLE_P_QR", category_code="groceries"
+        )
+        await session.commit()
+
+        service = BankLearningRuleService(session)
+        suggest = await service.set_rule_mode(
+            rule_id=rule.id,
+            telegram_user_id=1001,
+            mode=BankCategoryRuleMode.SUGGEST,
+        )
+        autosave = await service.set_rule_mode(
+            rule_id=rule.id,
+            telegram_user_id=1001,
+            mode=BankCategoryRuleMode.AUTOSAVE,
+        )
+        disabled = await service.set_rule_mode(
+            rule_id=rule.id,
+            telegram_user_id=1001,
+            mode=BankCategoryRuleMode.DISABLED,
+        )
+
+        assert suggest.is_active
+        assert suggest.mode == BankCategoryRuleMode.SUGGEST
+        assert autosave.is_active
+        assert autosave.mode == BankCategoryRuleMode.AUTOSAVE
+        assert not disabled.is_active
+        assert disabled.mode == BankCategoryRuleMode.DISABLED
 
 
 @pytest.mark.asyncio
@@ -139,6 +180,7 @@ async def _add_rule(
         merchant_display=merchant,
         category_id=category.id,
         hit_count=2,
+        mode=BankCategoryRuleMode.AUTOSAVE.value,
         is_active=True,
         last_confirmed_at=datetime(2026, 6, 27, 12, 0),
     )

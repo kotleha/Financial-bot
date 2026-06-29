@@ -93,6 +93,7 @@ from financial_bot.app.bot.routers.reports import (
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.periods import PeriodKind
 from financial_bot.app.domain.spending_limits import LimitRuleKind
+from financial_bot.app.domain.types import BankCategoryRuleMode
 from financial_bot.app.services.bank_learning_rule_service import BankLearningRuleLine
 from financial_bot.app.services.category_settings_service import CategorySettingsLine
 from financial_bot.app.services.spending_limit_service import LimitOverviewLine
@@ -385,6 +386,7 @@ def test_bank_learning_keyboards_pack_callback_data() -> None:
                 category_title="Продукты",
                 hit_count=2,
                 is_active=True,
+                mode=BankCategoryRuleMode.AUTOSAVE,
                 last_confirmed_at=None,
             ),
         )
@@ -393,16 +395,23 @@ def test_bank_learning_keyboards_pack_callback_data() -> None:
         rules_keyboard.inline_keyboard[0][0].callback_data
     )
     assert rule_callback.rule_id == 11
-    assert rules_keyboard.inline_keyboard[0][0].text == "✅ SBER · BAHETLE_P_QR → Продукты"
+    assert rules_keyboard.inline_keyboard[0][0].text == "🤖 SBER · BAHETLE_P_QR → Продукты"
 
-    actions_keyboard = build_bank_learning_rule_actions_keyboard(rule_id=11, is_active=True)
+    actions_keyboard = build_bank_learning_rule_actions_keyboard(
+        rule_id=11,
+        mode=BankCategoryRuleMode.AUTOSAVE,
+    )
     category_action = BankLearningActionCallback.unpack(
         actions_keyboard.inline_keyboard[0][0].callback_data
     )
+    suggest_action = BankLearningActionCallback.unpack(
+        actions_keyboard.inline_keyboard[1][0].callback_data
+    )
     disable_action = BankLearningActionCallback.unpack(
-        actions_keyboard.inline_keyboard[0][1].callback_data
+        actions_keyboard.inline_keyboard[2][0].callback_data
     )
     assert category_action.action == BankLearningAction.CHANGE_CATEGORY
+    assert suggest_action.action == BankLearningAction.SET_SUGGEST
     assert disable_action.action == BankLearningAction.DISABLE
 
     categories_keyboard = build_bank_learning_category_keyboard(

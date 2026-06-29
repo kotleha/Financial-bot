@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from financial_bot.app.domain.types import BankCategoryRuleMode
 from financial_bot.app.storage.models import BankCategoryRuleModel
 
 
@@ -62,6 +63,7 @@ class BankCategoryRuleRepository:
             .where(BankCategoryRuleModel.bank == bank)
             .where(BankCategoryRuleModel.merchant_key == merchant_key)
             .where(BankCategoryRuleModel.is_active.is_(True))
+            .where(BankCategoryRuleModel.mode != BankCategoryRuleMode.DISABLED.value)
         )
         return result.scalar_one_or_none()
 
@@ -104,18 +106,33 @@ class BankCategoryRuleRepository:
                     merchant_display=merchant_display,
                     category_id=category_id,
                     hit_count=1,
+                    mode=BankCategoryRuleMode.SUGGEST.value,
                     is_active=True,
                     last_confirmed_at=confirmed_at,
                 )
             )
 
+        previous_hit_count = rule.hit_count
+        was_disabled = rule.mode == BankCategoryRuleMode.DISABLED.value or not rule.is_active
         if rule.category_id == category_id:
             rule.hit_count += 1
+            if (
+                not was_disabled
+                and rule.mode == BankCategoryRuleMode.SUGGEST.value
+                and previous_hit_count < 2 <= rule.hit_count
+            ):
+                rule.mode = BankCategoryRuleMode.AUTOSAVE.value
         else:
             rule.hit_count = 1
+            if not was_disabled:
+                rule.mode = BankCategoryRuleMode.SUGGEST.value
         rule.category_id = category_id
         rule.merchant_display = merchant_display
-        rule.is_active = True
+        if was_disabled:
+            rule.mode = BankCategoryRuleMode.DISABLED.value
+            rule.is_active = False
+        else:
+            rule.is_active = True
         rule.last_confirmed_at = confirmed_at
         await self._session.flush()
         return rule

@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from financial_bot.app.domain.types import BankCategoryRuleMode
 from financial_bot.app.services.transaction_service import CategoryOption
 from financial_bot.app.storage.models import BankCategoryRuleModel, CategoryModel
 from financial_bot.app.storage.repositories.bank_category_rule_repository import (
@@ -20,6 +21,7 @@ class BankLearningRuleLine:
     category_title: str
     hit_count: int
     is_active: bool
+    mode: BankCategoryRuleMode
     last_confirmed_at: datetime | None
 
 
@@ -33,6 +35,7 @@ class BankLearningRuleDetails:
     category_title: str
     hit_count: int
     is_active: bool
+    mode: BankCategoryRuleMode
     created_at: datetime
     updated_at: datetime
     last_confirmed_at: datetime | None
@@ -47,6 +50,7 @@ class BankLearningRuleUpdateResult:
     old_category_title: str
     new_category_title: str
     is_active: bool
+    mode: BankCategoryRuleMode
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +60,8 @@ class BankLearningRuleStatusResult:
     merchant_display: str
     category_title: str
     is_active: bool
+    mode: BankCategoryRuleMode
+    hit_count: int
 
 
 class BankLearningRuleService:
@@ -116,6 +122,8 @@ class BankLearningRuleService:
 
         old_title = _category_title(old_category)
         rule.category_id = new_category.id
+        if _rule_mode(rule) == BankCategoryRuleMode.DISABLED:
+            rule.mode = BankCategoryRuleMode.SUGGEST.value
         rule.is_active = True
         return BankLearningRuleUpdateResult(
             rule_id=rule.id,
@@ -124,6 +132,7 @@ class BankLearningRuleService:
             old_category_title=old_title,
             new_category_title=new_category.title,
             is_active=rule.is_active,
+            mode=_rule_mode(rule),
         )
 
     async def set_rule_active(
@@ -135,13 +144,45 @@ class BankLearningRuleService:
     ) -> BankLearningRuleStatusResult:
         rule = await self._get_owned_rule(rule_id=rule_id, telegram_user_id=telegram_user_id)
         category = await self._categories.get(rule.category_id)
-        rule.is_active = is_active
+        if is_active:
+            rule.mode = (
+                BankCategoryRuleMode.AUTOSAVE.value
+                if rule.hit_count >= 2
+                else BankCategoryRuleMode.SUGGEST.value
+            )
+            rule.is_active = True
+        else:
+            rule.mode = BankCategoryRuleMode.DISABLED.value
+            rule.is_active = False
         return BankLearningRuleStatusResult(
             rule_id=rule.id,
             bank=rule.bank,
             merchant_display=rule.merchant_display,
             category_title=_category_title(category),
             is_active=rule.is_active,
+            mode=_rule_mode(rule),
+            hit_count=rule.hit_count,
+        )
+
+    async def set_rule_mode(
+        self,
+        *,
+        rule_id: int,
+        telegram_user_id: int,
+        mode: BankCategoryRuleMode,
+    ) -> BankLearningRuleStatusResult:
+        rule = await self._get_owned_rule(rule_id=rule_id, telegram_user_id=telegram_user_id)
+        category = await self._categories.get(rule.category_id)
+        rule.mode = mode.value
+        rule.is_active = mode != BankCategoryRuleMode.DISABLED
+        return BankLearningRuleStatusResult(
+            rule_id=rule.id,
+            bank=rule.bank,
+            merchant_display=rule.merchant_display,
+            category_title=_category_title(category),
+            is_active=rule.is_active,
+            mode=mode,
+            hit_count=rule.hit_count,
         )
 
     async def _resolve_user(self, telegram_user_id: int):
@@ -171,6 +212,7 @@ class BankLearningRuleService:
             category_title=_category_title(category),
             hit_count=rule.hit_count,
             is_active=rule.is_active,
+            mode=_rule_mode(rule),
             last_confirmed_at=rule.last_confirmed_at,
         )
 
@@ -188,6 +230,7 @@ def _to_details(
         category_title=_category_title(category),
         hit_count=rule.hit_count,
         is_active=rule.is_active,
+        mode=_rule_mode(rule),
         created_at=rule.created_at,
         updated_at=rule.updated_at,
         last_confirmed_at=rule.last_confirmed_at,
@@ -199,3 +242,10 @@ def _category_title(category: CategoryModel | None) -> str:
     if category is None:
         return "категория недоступна"
     return category.title
+
+
+def _rule_mode(rule: BankCategoryRuleModel) -> BankCategoryRuleMode:
+    try:
+        return BankCategoryRuleMode(rule.mode)
+    except ValueError:
+        return BankCategoryRuleMode.DISABLED if not rule.is_active else BankCategoryRuleMode.SUGGEST

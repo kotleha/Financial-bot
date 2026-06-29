@@ -28,7 +28,10 @@ AUTOSAVE_ACTION_HINT = (
     "Кнопки ниже меняют уже записанную операцию: можно исправить категорию, убрать расход "
     "или отключить правило."
 )
-LEARNING_RULE_MANAGEMENT_HINT = "Правило можно отключить или изменить в «🧠 Правила категорий»."
+LEARNING_RULE_MANAGEMENT_HINT = (
+    "Режим правила можно изменить в «🧠 Правила категорий»: подсказывать, автосохранять "
+    "или отключить."
+)
 
 
 def bank_suggestion_hint(source: BankEventSuggestionSource) -> str | None:

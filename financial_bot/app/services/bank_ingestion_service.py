@@ -9,6 +9,7 @@ from financial_bot.app.config import Settings
 from financial_bot.app.domain.bank_learning import normalize_bank_merchant_key
 from financial_bot.app.domain.bank_sms import ParsedBankSms, parse_bank_sms
 from financial_bot.app.domain.types import (
+    BankCategoryRuleMode,
     BankEventBank,
     BankEventChannel,
     BankEventOperationKind,
@@ -65,6 +66,7 @@ class BankImportResult:
     telegram_notification_attempts: int = 0
     telegram_notification_sent_at: datetime | None = None
     telegram_notification_failed_at: datetime | None = None
+    suggestion_conflict: bool = False
 
     @property
     def creates_expense_candidate(self) -> bool:
@@ -495,6 +497,7 @@ class BankIngestionService:
             msg = "Правило автоучёта не найдено"
             raise ValueError(msg)
 
+        rule.mode = BankCategoryRuleMode.DISABLED.value
         rule.is_active = False
         await self._session.flush()
         return await self._event_update_result(event)
@@ -785,6 +788,9 @@ class BankIngestionService:
             parsed=parsed,
             received_at=received_at,
         )
+        suggestion_conflict = (
+            learning_suggestion.has_parser_conflict if learning_suggestion is not None else False
+        )
 
         event, is_created = await self._bank_events.add_event_if_new(
             BankEventModel(
@@ -804,6 +810,7 @@ class BankIngestionService:
                 redacted_text=parsed.redacted_text,
                 normalized_text_hash=normalized_text_hash,
                 dedupe_key=dedupe_key,
+                suggestion_conflict=suggestion_conflict,
                 suggested_category_id=category.id if category is not None else None,
                 suggested_category_source=suggestion_source.value,
             )
@@ -824,6 +831,7 @@ class BankIngestionService:
                     BankEventParseStatus.AUTOSAVED if autosaved_transaction is not None else status
                 ),
                 category=category,
+                suggestion_conflict=event.suggestion_conflict,
                 is_duplicate=False,
             )
 
@@ -852,6 +860,10 @@ class BankIngestionService:
         if suggestion_source != BankEventSuggestionSource.LEARNED_RULE:
             return None
         if learning_suggestion is None or learning_suggestion.hit_count < 2:
+            return None
+        if learning_suggestion.mode != BankCategoryRuleMode.AUTOSAVE:
+            return None
+        if learning_suggestion.has_parser_conflict:
             return None
 
         owner = await self._session.get(UserModel, source.owner_user_id)
@@ -937,6 +949,15 @@ class BankIngestionService:
             if learned is not None:
                 category = await self._categories.get(learned.category_id)
                 if category is not None:
+                    parser_category = await self._resolve_suggested_category(
+                        parsed.suggested_category_code
+                    )
+                    learned = replace(
+                        learned,
+                        has_parser_conflict=(
+                            parser_category is not None and parser_category.id != category.id
+                        ),
+                    )
                     return category, BankEventSuggestionSource.LEARNED_RULE, learned
 
         category = await self._resolve_suggested_category(parsed.suggested_category_code)
@@ -1122,6 +1143,7 @@ def _result_from_parsed(
     status: BankEventParseStatus,
     category: CategoryModel | None,
     is_duplicate: bool,
+    suggestion_conflict: bool = False,
 ) -> BankImportResult:
     return BankImportResult(
         event_id=event.id,
@@ -1144,6 +1166,7 @@ def _result_from_parsed(
         telegram_notification_attempts=event.telegram_notification_attempts,
         telegram_notification_sent_at=event.telegram_notification_sent_at,
         telegram_notification_failed_at=event.telegram_notification_failed_at,
+        suggestion_conflict=suggestion_conflict,
     )
 
 
@@ -1174,6 +1197,7 @@ def _result_from_event(
         telegram_notification_attempts=event.telegram_notification_attempts,
         telegram_notification_sent_at=event.telegram_notification_sent_at,
         telegram_notification_failed_at=event.telegram_notification_failed_at,
+        suggestion_conflict=event.suggestion_conflict,
     )
 
 

@@ -7,6 +7,7 @@ from financial_bot.app.bot.formatters.bank_learning import (
     format_bank_learning_rules_list,
 )
 from financial_bot.app.domain.bank_learning import normalize_bank_merchant_key
+from financial_bot.app.domain.types import BankCategoryRuleMode
 from financial_bot.app.services.bank_learning_rule_service import (
     BankLearningRuleDetails,
     BankLearningRuleLine,
@@ -33,14 +34,16 @@ def test_bank_learning_rules_list_explains_management_path() -> None:
                 category_title="Продукты",
                 hit_count=2,
                 is_active=True,
+                mode=BankCategoryRuleMode.AUTOSAVE,
                 last_confirmed_at=None,
             ),
         )
     )
 
     assert "Выученные правила категорий" in text
-    assert "Активные: 1" in text
-    assert "Правило можно отключить или изменить в «🧠 Правила категорий»." in text
+    assert "Автосохранение: 1" in text
+    assert "Только подсказки: 0" in text
+    assert "Режим правила можно изменить в «🧠 Правила категорий»" in text
 
 
 def test_bank_learning_rule_details_explain_scope_and_autosave() -> None:
@@ -54,6 +57,7 @@ def test_bank_learning_rule_details_explain_scope_and_autosave() -> None:
             category_title="Продукты",
             hit_count=2,
             is_active=True,
+            mode=BankCategoryRuleMode.AUTOSAVE,
             created_at=datetime(2026, 6, 1, tzinfo=UTC),
             updated_at=datetime(2026, 6, 2, tzinfo=UTC),
             last_confirmed_at=datetime(2026, 6, 2, 10, tzinfo=UTC),
@@ -61,7 +65,8 @@ def test_bank_learning_rule_details_explain_scope_and_autosave() -> None:
         )
     )
 
-    assert "Активное правило может записывать похожие расходы автоматически." in text
+    assert "Режим: автосохранение" in text
+    assert "Похожие SMS будут записываться автоматически" in text
     assert "Правило работает только для похожего продавца в этом банке." in text
 
 
@@ -74,6 +79,7 @@ def test_bank_learning_rule_updates_keep_management_hint() -> None:
             old_category_title="Продукты",
             new_category_title="Рестораны/Кафе",
             is_active=True,
+            mode=BankCategoryRuleMode.SUGGEST,
         )
     )
     status_text = format_bank_learning_rule_status_updated(
@@ -83,9 +89,12 @@ def test_bank_learning_rule_updates_keep_management_hint() -> None:
             merchant_display="BAHETLE_P_QR",
             category_title="Продукты",
             is_active=False,
+            mode=BankCategoryRuleMode.DISABLED,
+            hit_count=2,
         )
     )
 
-    assert "Правило включено и будет использоваться для следующих похожих SMS." in category_text
-    assert "Правило можно отключить или изменить в «🧠 Правила категорий»." in category_text
-    assert "Бот больше не будет автоматически применять это правило." in status_text
+    assert "Режим: только подсказка" in category_text
+    assert "Режим правила можно изменить в «🧠 Правила категорий»" in category_text
+    assert "Режим: отключено" in status_text
+    assert "не будет использовать это правило" in status_text

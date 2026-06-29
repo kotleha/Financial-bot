@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.types import (
+    BankCategoryRuleMode,
     BankEventBank,
     BankEventChannel,
     BankEventParseStatus,
@@ -560,7 +561,12 @@ async def test_bank_ingestion_endpoint_autosaves_learned_expense_and_notifies(
     settings = make_settings()
     token = "source-token"
     await _seed_source(session_factory, settings, token=token, bank=BankEventBank.SBER)
-    await _seed_learning_rule(session_factory, settings, bank=BankEventBank.SBER)
+    await _seed_learning_rule(
+        session_factory,
+        settings,
+        bank=BankEventBank.SBER,
+        merchant="UNKNOWN SHOP",
+    )
     notifier = FakeBankEventNotifier()
     app = create_app(settings=settings, session_factory=session_factory, notifier=notifier)
 
@@ -574,7 +580,7 @@ async def test_bank_ingestion_endpoint_autosaves_learned_expense_and_notifies(
         response = await client.post(
             "/bank-events",
             headers={"Authorization": f"Bearer {token}"},
-            json={"text": _purchase_sms(), "sender": "900"},
+            json={"text": _unknown_shop_purchase_sms(), "sender": "900"},
         )
 
     assert response.status_code == 200
@@ -827,6 +833,7 @@ async def _seed_learning_rule(
     settings: Settings,
     *,
     bank: BankEventBank,
+    merchant: str = "APTEKA TEST",
 ) -> None:
     async with session_factory() as session:
         owner = await session.scalar(
@@ -841,10 +848,11 @@ async def _seed_learning_rule(
             BankCategoryRuleModel(
                 owner_user_id=owner.id,
                 bank=bank.value,
-                merchant_key="apteka test",
-                merchant_display="APTEKA TEST",
+                merchant_key=merchant.lower(),
+                merchant_display=merchant,
                 category_id=category.id,
                 hit_count=2,
+                mode=BankCategoryRuleMode.AUTOSAVE.value,
                 is_active=True,
                 last_confirmed_at=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
             )
@@ -854,3 +862,7 @@ async def _seed_learning_rule(
 
 def _purchase_sms() -> str:
     return "Счёт карты MIR-1111 11:09 Покупка 290р APTEKA TEST Баланс: 924.14р"
+
+
+def _unknown_shop_purchase_sms() -> str:
+    return "Счёт карты MIR-1111 11:09 Покупка 290р UNKNOWN SHOP Баланс: 924.14р"

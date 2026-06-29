@@ -3,12 +3,15 @@ from enum import StrEnum
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from financial_bot.app.domain.types import BankCategoryRuleMode
 from financial_bot.app.services.bank_learning_rule_service import BankLearningRuleLine
 from financial_bot.app.services.transaction_service import CategoryOption
 
 
 class BankLearningAction(StrEnum):
     CHANGE_CATEGORY = "cat"
+    SET_SUGGEST = "suggest"
+    SET_AUTOSAVE = "autosave"
     DISABLE = "off"
     ENABLE = "on"
     BACK = "back"
@@ -46,19 +49,29 @@ def build_bank_learning_rules_keyboard(
 def build_bank_learning_rule_actions_keyboard(
     *,
     rule_id: int,
-    is_active: bool,
+    mode: BankCategoryRuleMode,
 ) -> InlineKeyboardMarkup:
-    toggle_action = BankLearningAction.DISABLE if is_active else BankLearningAction.ENABLE
-    toggle_text = "⏸ Отключить" if is_active else "▶️ Включить"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _action_button("🏷 Сменить категорию", BankLearningAction.CHANGE_CATEGORY, rule_id),
-                _action_button(toggle_text, toggle_action, rule_id),
-            ],
-            [_action_button("↩️ К правилам", BankLearningAction.BACK, rule_id)],
-        ]
-    )
+    mode_row: list[InlineKeyboardButton] = []
+    if mode != BankCategoryRuleMode.SUGGEST:
+        mode_row.append(
+            _action_button("💡 Только подсказывать", BankLearningAction.SET_SUGGEST, rule_id)
+        )
+    if mode != BankCategoryRuleMode.AUTOSAVE:
+        mode_row.append(
+            _action_button("🤖 Автосохранять", BankLearningAction.SET_AUTOSAVE, rule_id)
+        )
+
+    disable_row: list[InlineKeyboardButton] = []
+    if mode != BankCategoryRuleMode.DISABLED:
+        disable_row.append(_action_button("⏸ Отключить", BankLearningAction.DISABLE, rule_id))
+
+    rows = [[_action_button("🏷 Сменить категорию", BankLearningAction.CHANGE_CATEGORY, rule_id)]]
+    if mode_row:
+        rows.append(mode_row)
+    if disable_row:
+        rows.append(disable_row)
+    rows.append([_action_button("↩️ К правилам", BankLearningAction.BACK, rule_id)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def build_bank_learning_category_keyboard(
@@ -94,11 +107,19 @@ def _action_button(
 
 
 def _format_rule_button(line: BankLearningRuleLine) -> str:
-    status = "✅" if line.is_active else "⏸"
+    status = _mode_icon(line.mode)
     bank = line.bank.upper()
     merchant = _shorten(line.merchant_display, max_length=28)
     category = _shorten(line.category_title, max_length=26)
     return f"{status} {bank} · {merchant} → {category}"
+
+
+def _mode_icon(mode: BankCategoryRuleMode) -> str:
+    if mode == BankCategoryRuleMode.AUTOSAVE:
+        return "🤖"
+    if mode == BankCategoryRuleMode.SUGGEST:
+        return "💡"
+    return "⏸"
 
 
 def _shorten(text: str, *, max_length: int) -> str:

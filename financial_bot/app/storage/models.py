@@ -19,6 +19,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from financial_bot.app.domain.types import (
     AuditAction,
+    BankCategoryRuleMode,
     BankEventBank,
     BankEventChannel,
     BankEventOperationKind,
@@ -342,6 +343,10 @@ class BankCategoryRuleModel(Base):
             f"bank in ({_sql_values(BankEventBank)})",
             name="bank_category_rules_bank",
         ),
+        CheckConstraint(
+            f"mode in ({_sql_values(BankCategoryRuleMode)})",
+            name="bank_category_rules_mode",
+        ),
         UniqueConstraint("owner_user_id", "bank", "merchant_key"),
         Index("ix_bank_category_rules_owner_bank", "owner_user_id", "bank"),
         Index("ix_bank_category_rules_category_id", "category_id"),
@@ -354,6 +359,12 @@ class BankCategoryRuleModel(Base):
     merchant_display: Mapped[str] = mapped_column(String(255), nullable=False)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
     hit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    mode: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=BankCategoryRuleMode.SUGGEST.value,
+        server_default=BankCategoryRuleMode.SUGGEST.value,
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -454,6 +465,12 @@ class BankEventModel(Base):
     redacted_text: Mapped[str] = mapped_column(String(2000), nullable=False)
     normalized_text_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    suggestion_conflict: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     suggested_category_id: Mapped[int | None] = mapped_column(
         ForeignKey("categories.id"),
         nullable=True,

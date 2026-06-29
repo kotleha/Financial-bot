@@ -1,4 +1,5 @@
 from financial_bot.app.domain.types import (
+    BankCategoryRuleMode,
     BankEventBank,
     BankEventChannel,
     BankEventOperationKind,
@@ -107,6 +108,11 @@ def test_domain_enum_values_match_database_contract() -> None:
         "manual",
         "none",
     }
+    assert {item.value for item in BankCategoryRuleMode} == {
+        "suggest",
+        "autosave",
+        "disabled",
+    }
 
 
 def test_transaction_model_uses_integer_amounts() -> None:
@@ -135,6 +141,11 @@ def test_bank_event_tables_have_expected_constraints() -> None:
         for constraint in bank_events.constraints
         if isinstance(constraint, CheckConstraint)
     }
+    rule_check_constraint_names = {
+        constraint.name
+        for constraint in bank_category_rules.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
     rule_unique_columns = {
         tuple(column.name for column in constraint.columns)
         for constraint in bank_category_rules.constraints
@@ -143,12 +154,14 @@ def test_bank_event_tables_have_expected_constraints() -> None:
 
     assert ("code",) in source_unique_columns
     assert ("token_hash",) in source_unique_columns
+    assert "suggestion_conflict" in bank_events.c
     assert ("dedupe_key",) in event_unique_columns
     assert ("owner_user_id", "bank", "merchant_key") in rule_unique_columns
     assert "ck_bank_events_bank_events_operation_kind" in event_check_constraint_names
     assert "ck_bank_events_bank_events_parse_status" in event_check_constraint_names
     assert "ck_bank_events_bank_events_source" in event_check_constraint_names
     assert "ck_bank_events_bank_events_suggested_category_source" in event_check_constraint_names
+    assert "ck_bank_category_rules_bank_category_rules_mode" in rule_check_constraint_names
 
 
 def test_bank_event_model_uses_integer_amounts() -> None:
