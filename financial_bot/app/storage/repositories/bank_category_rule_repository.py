@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_bot.app.domain.types import BankCategoryRuleMode
@@ -43,6 +43,28 @@ class BankCategoryRuleRepository:
             .where(BankCategoryRuleModel.owner_user_id == owner_user_id)
             .order_by(
                 BankCategoryRuleModel.is_active.desc(),
+                BankCategoryRuleModel.last_confirmed_at.desc(),
+                BankCategoryRuleModel.id.desc(),
+            )
+            .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def count_by_mode(self) -> dict[str, int]:
+        result = await self._session.execute(
+            select(BankCategoryRuleModel.mode, func.count(BankCategoryRuleModel.id)).group_by(
+                BankCategoryRuleModel.mode
+            )
+        )
+        return {mode: count for mode, count in result.all()}
+
+    async def list_top_rules(self, *, limit: int = 5) -> list[BankCategoryRuleModel]:
+        result = await self._session.execute(
+            select(BankCategoryRuleModel)
+            .order_by(
+                BankCategoryRuleModel.is_active.desc(),
+                BankCategoryRuleModel.hit_count.desc(),
+                BankCategoryRuleModel.last_used_at.desc(),
                 BankCategoryRuleModel.last_confirmed_at.desc(),
                 BankCategoryRuleModel.id.desc(),
             )

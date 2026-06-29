@@ -202,12 +202,12 @@ Auto-accounting menu buttons:
 - `ℹ️ Как работает автоучёт`
 - `↩️ Главное меню`
 
-`🩺 Состояние автоучёта` and `🔎 Проверить источники` show bank SMS source health: active
-sources, last received SMS, pending confirmations, failed Telegram notification deliveries, and
-events not yet sent to Telegram. The same health view also counts unknown and service/ignored bank
-messages without exposing raw SMS text. `🔁 Повторить отправку ожидающих` resends pending
-confirmation cards for the current user. The old `⏳ Ожидают подтверждения` text is still accepted
-as an alias.
+`🩺 Состояние автоучёта` and `🔎 Проверить источники` show a 30-day auto-accounting quality
+dashboard: source health, received bank events, autosaved and manually confirmed expenses,
+non-expense events, delivery issues, unknown formats, learned-rule mode counts, and top learned
+merchant rules. Raw SMS text and tokens are not exposed. `🔁 Повторить отправку ожидающих` resends
+pending confirmation cards for the current user. The old `⏳ Ожидают подтверждения` text is still
+accepted as an alias.
 
 Settings menu buttons:
 

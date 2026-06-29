@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.types import (
+    BankCategoryRuleMode,
     BankEventBank,
     BankEventChannel,
     BankEventOperationKind,
@@ -16,11 +17,17 @@ from financial_bot.app.services.auto_accounting_health_service import (
 )
 from financial_bot.app.services.seed_service import seed_initial_data
 from financial_bot.app.storage.db import create_engine, create_session_factory
-from financial_bot.app.storage.models import BankEventModel, BankEventSourceModel, Base
+from financial_bot.app.storage.models import (
+    BankCategoryRuleModel,
+    BankEventModel,
+    BankEventSourceModel,
+    Base,
+)
 from financial_bot.app.storage.repositories.bank_event_repository import (
     BankEventRepository,
     hash_bank_event_source_token,
 )
+from financial_bot.app.storage.repositories.category_repository import CategoryRepository
 from financial_bot.app.storage.repositories.user_repository import UserRepository
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -113,10 +120,37 @@ async def test_auto_accounting_health_aggregates_source_status(
         await bank_events.add_event(
             _event(
                 source_id=husband_source.id,
+                received_at=datetime(2026, 6, 28, 10, 4, 15, tzinfo=UTC),
+                dedupe_key="autosaved",
+                parse_status=BankEventParseStatus.AUTOSAVED,
+                transaction_id=124,
+            )
+        )
+        await bank_events.add_event(
+            _event(
+                source_id=husband_source.id,
                 received_at=datetime(2026, 6, 28, 10, 4, 30, tzinfo=UTC),
                 dedupe_key="unknown",
                 parse_status=BankEventParseStatus.NEEDS_CONFIRMATION,
                 operation_kind=BankEventOperationKind.UNKNOWN,
+            )
+        )
+        await bank_events.add_event(
+            _event(
+                source_id=husband_source.id,
+                received_at=datetime(2026, 6, 28, 10, 4, 35, tzinfo=UTC),
+                dedupe_key="income",
+                parse_status=BankEventParseStatus.PARSED,
+                operation_kind=BankEventOperationKind.INCOME,
+            )
+        )
+        await bank_events.add_event(
+            _event(
+                source_id=husband_source.id,
+                received_at=datetime(2026, 6, 28, 10, 4, 40, tzinfo=UTC),
+                dedupe_key="refund",
+                parse_status=BankEventParseStatus.PARSED,
+                operation_kind=BankEventOperationKind.REFUND,
             )
         )
         await bank_events.add_event(
@@ -130,31 +164,112 @@ async def test_auto_accounting_health_aggregates_source_status(
         )
         await bank_events.add_event(
             _event(
+                source_id=husband_source.id,
+                received_at=datetime(2026, 6, 28, 10, 4, 50, tzinfo=UTC),
+                dedupe_key="internal-transfer",
+                parse_status=BankEventParseStatus.PARSED,
+                operation_kind=BankEventOperationKind.INTERNAL_TRANSFER,
+            )
+        )
+        await bank_events.add_event(
+            _event(
+                source_id=husband_source.id,
+                received_at=datetime(2026, 6, 28, 10, 4, 55, tzinfo=UTC),
+                dedupe_key="conflict",
+                parse_status=BankEventParseStatus.NEEDS_CONFIRMATION,
+                suggestion_conflict=True,
+            )
+        )
+        await bank_events.add_event(
+            _event(
                 source_id=wife_source.id,
                 received_at=datetime(2026, 6, 28, 10, 5, tzinfo=UTC),
                 dedupe_key="wife-pending",
                 parse_status=BankEventParseStatus.NEEDS_CONFIRMATION,
             )
         )
+        category = await CategoryRepository(session).get_by_code("groceries")
+        assert category is not None
+        session.add_all(
+            [
+                BankCategoryRuleModel(
+                    owner_user_id=husband.id,
+                    bank=BankEventBank.SBER.value,
+                    merchant_key="magnit",
+                    merchant_display="MAGNIT",
+                    category_id=category.id,
+                    hit_count=3,
+                    mode=BankCategoryRuleMode.AUTOSAVE.value,
+                    is_active=True,
+                    last_confirmed_at=datetime(2026, 6, 28, 10, 0, tzinfo=UTC),
+                    last_used_at=datetime(2026, 6, 28, 10, 4, tzinfo=UTC),
+                ),
+                BankCategoryRuleModel(
+                    owner_user_id=wife.id,
+                    bank=BankEventBank.VTB.value,
+                    merchant_key="apteka",
+                    merchant_display="APTEKA",
+                    category_id=category.id,
+                    hit_count=1,
+                    mode=BankCategoryRuleMode.SUGGEST.value,
+                    is_active=True,
+                    last_confirmed_at=datetime(2026, 6, 28, 11, 0, tzinfo=UTC),
+                ),
+                BankCategoryRuleModel(
+                    owner_user_id=wife.id,
+                    bank=BankEventBank.TBANK.value,
+                    merchant_key="old",
+                    merchant_display="OLD",
+                    category_id=category.id,
+                    hit_count=2,
+                    mode=BankCategoryRuleMode.DISABLED.value,
+                    is_active=False,
+                    last_confirmed_at=datetime(2026, 6, 27, 11, 0, tzinfo=UTC),
+                ),
+            ]
+        )
+        await session.flush()
 
-        health = await AutoAccountingHealthService(session).get_health(telegram_user_id=1001)
+        health = await AutoAccountingHealthService(session).get_health(
+            telegram_user_id=1001,
+            now=datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
+        )
 
     assert health.active_source_count == 1
     assert health.inactive_source_count == 1
-    assert health.pending_confirmation_count == 3
+    assert health.total_event_count == 11
+    assert health.expense_candidate_count == 6
+    assert health.autosaved_expense_count == 1
+    assert health.confirmed_expense_count == 1
+    assert health.saved_expense_count == 2
+    assert health.income_event_count == 1
+    assert health.refund_event_count == 1
+    assert health.internal_transfer_event_count == 1
+    assert health.pending_confirmation_count == 4
     assert health.failed_telegram_notification_count == 1
-    assert health.unsent_pending_count == 3
+    assert health.unsent_pending_count == 4
     assert health.unknown_event_count == 1
     assert health.ignored_event_count == 1
+    assert health.conflict_event_count == 1
+    assert health.autosave_rule_count == 1
+    assert health.suggest_rule_count == 1
+    assert health.disabled_rule_count == 1
+    assert health.top_rules[0].merchant_display == "MAGNIT"
+    assert health.top_rules[0].category_title == "Продукты"
 
     husband_line = next(source for source in health.sources if source.code == "husband-sber-ios")
     wife_line = next(source for source in health.sources if source.code == "wife-vtb-ios")
-    assert husband_line.pending_confirmation_count == 2
+    assert husband_line.total_event_count == 10
+    assert husband_line.expense_candidate_count == 5
+    assert husband_line.saved_expense_count == 2
+    assert husband_line.pending_confirmation_count == 3
     assert husband_line.failed_telegram_notification_count == 1
-    assert husband_line.unsent_pending_count == 2
+    assert husband_line.unsent_pending_count == 3
     assert husband_line.unknown_event_count == 1
     assert husband_line.ignored_event_count == 1
-    assert husband_line.last_event_received_at == datetime(2026, 6, 28, 10, 4, 45)
+    assert husband_line.conflict_event_count == 1
+    assert husband_line.last_event_received_at == datetime(2026, 6, 28, 10, 4, 55)
+    assert wife_line.total_event_count == 1
     assert wife_line.pending_confirmation_count == 1
     assert not wife_line.is_active
 
@@ -179,6 +294,7 @@ def _event(
     operation_kind: BankEventOperationKind = BankEventOperationKind.EXPENSE_CANDIDATE,
     failed_at: datetime | None = None,
     transaction_id: int | None = None,
+    suggestion_conflict: bool = False,
 ) -> BankEventModel:
     return BankEventModel(
         source_id=source_id,
@@ -193,6 +309,7 @@ def _event(
         redacted_text="redacted bank payload",
         normalized_text_hash=dedupe_key,
         dedupe_key=dedupe_key,
+        suggestion_conflict=suggestion_conflict,
         telegram_notification_failed_at=failed_at,
         transaction_id=transaction_id,
     )
