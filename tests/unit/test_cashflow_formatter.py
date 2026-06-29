@@ -52,3 +52,6 @@ def test_format_cashflow_report_groups_income_before_recipients() -> None:
     assert "Доходы по получателю:" in text
     assert "Муж — 100 000 ₽ — 80,0%" in text
     assert "Жена — 25 000 ₽ — 20,0%" in text
+    assert "Оценка копилки по лимитам:" in text
+    assert "Копилка считается как остатки по лимитам минус превышения." in text
+    assert "Доходы не входят в расходные лимиты, графики категорий и отчёты по расходам." in text

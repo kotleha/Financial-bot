@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from financial_bot.app.bot.formatters.context_hints import LEARNING_RULE_MANAGEMENT_HINT
 from financial_bot.app.services.bank_learning_rule_service import (
     BankLearningRuleDetails,
     BankLearningRuleLine,
@@ -25,6 +26,7 @@ def format_bank_learning_rules_list(rules: tuple[BankLearningRuleLine, ...]) -> 
         f"Отключённые: {inactive_count}",
         "",
         "Выберите правило, чтобы посмотреть детали или изменить категорию.",
+        LEARNING_RULE_MANAGEMENT_HINT,
     ]
     return "\n".join(lines)
 
@@ -46,6 +48,7 @@ def format_bank_learning_rule_details(details: BankLearningRuleDetails) -> str:
             "",
             "Активное правило может записывать похожие расходы автоматически. "
             "Если категория неверная, измените её или отключите правило.",
+            "Правило работает только для похожего продавца в этом банке.",
         ]
     )
 
@@ -60,6 +63,7 @@ def format_bank_learning_rule_category_updated(result: BankLearningRuleUpdateRes
             f"Стало: {result.new_category_title}",
             "",
             "Правило включено и будет использоваться для следующих похожих SMS.",
+            LEARNING_RULE_MANAGEMENT_HINT,
         ]
     )
 

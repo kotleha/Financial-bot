@@ -85,6 +85,7 @@ def test_format_budget_report() -> None:
     assert "Итого недотратили: 20 000 ₽" in formatted
     assert "Итого превысили: 2 000 ₽" in formatted
     assert "Можно отложить в копилку: 18 000 ₽" in formatted
+    assert "Копилка считается как остатки по лимитам минус превышения." in formatted
 
 
 def test_format_limits_overview() -> None:
@@ -128,6 +129,7 @@ def test_format_limits_overview() -> None:
     assert "2. Продукты — 70 000 ₽" in formatted
     assert "15. Инвестиции/Накопления — цель 30 000 ₽" in formatted
     assert "17. Налоги — без лимита" in formatted
+    assert "предупреждениями на 50%, 80% и 100%" in formatted
     assert "/limits set 2 70000" in formatted
 
 
@@ -138,6 +140,7 @@ def test_format_savings_report_is_short_copilka_summary() -> None:
 
     assert "Копилка за Июнь 2026" in formatted
     assert "Должно остаться: 18 000 ₽" in formatted
+    assert "Категории без лимита в эту оценку не входят." in formatted
     assert "Превышения:" in formatted
     assert "Продукты — 2 000 ₽" in formatted
     assert "Крупные остатки:" in formatted
@@ -162,6 +165,7 @@ def test_format_threshold_alert_before_overrun() -> None:
     assert "Потрачено 56 000 ₽ из 70 000 ₽." in formatted
     assert "Использовано: 80,0%." in formatted
     assert "Осталось: 14 000 ₽." in formatted
+    assert "это только предупреждение о темпе" in formatted
 
 
 def test_format_threshold_alert_after_overrun() -> None:
@@ -180,6 +184,7 @@ def test_format_threshold_alert_after_overrun() -> None:
     assert "Лимит превышен: Продукты" in formatted
     assert "Использовано: 102,9%." in formatted
     assert "Превышение: 2 000 ₽." in formatted
+    assert "уменьшит сумму, которую можно отложить" in formatted
 
 
 def _sample_budget_report() -> BudgetReport:

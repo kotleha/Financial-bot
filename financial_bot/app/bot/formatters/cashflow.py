@@ -1,3 +1,4 @@
+from financial_bot.app.bot.formatters.context_hints import BUDGET_SAVINGS_HINT, INCOME_REPORT_HINT
 from financial_bot.app.bot.formatters.reports import ROLE_LABELS
 from financial_bot.app.domain.money import format_money_minor, round_minor_to_whole_units_minor
 from financial_bot.app.services.cashflow_service import CashflowReport
@@ -42,15 +43,11 @@ def format_cashflow_report(report: CashflowReport) -> str:
                 "",
                 "Оценка копилки по лимитам:",
                 _format_signed_money(report.budget_net_savings, report.currency),
+                BUDGET_SAVINGS_HINT,
             ]
         )
 
-    lines.extend(
-        [
-            "",
-            "Доходы не входят в расходные лимиты, графики категорий и отчёты по расходам.",
-        ]
-    )
+    lines.extend(["", INCOME_REPORT_HINT])
     return "\n".join(lines)
 
 

@@ -1,3 +1,4 @@
+from financial_bot.app.bot.formatters.context_hints import BUDGET_RULE_HINT, BUDGET_SAVINGS_HINT
 from financial_bot.app.domain.money import format_money_minor
 from financial_bot.app.domain.spending_limits import LimitRuleKind
 from financial_bot.app.services.spending_limit_service import (
@@ -39,6 +40,7 @@ def format_budget_report(report: BudgetReport) -> str:
                 "Можно отложить в копилку: "
                 f"{_format_signed_money(report.net_savings, report.currency)}"
             ),
+            BUDGET_SAVINGS_HINT,
         ]
     )
     return "\n".join(lines)
@@ -49,6 +51,8 @@ def format_limits_overview(overview: LimitOverview) -> str:
     lines.extend(_format_limit_overview_line(line, overview.currency) for line in overview.lines)
     lines.extend(
         [
+            "",
+            BUDGET_RULE_HINT,
             "",
             "Изменить:",
             "/limits set 2 70000",
@@ -67,6 +71,7 @@ def format_savings_report(report: BudgetReport) -> str:
         f"Итого недотратили: {format_money_minor(report.under_budget_pool, report.currency)}",
         f"Итого превысили: {format_money_minor(report.overrun_total, report.currency)}",
         f"Должно остаться: {_format_signed_money(report.net_savings, report.currency)}",
+        BUDGET_SAVINGS_HINT,
     ]
 
     overruns = [line for line in report.limit_lines if line.remaining_amount < 0]
@@ -111,6 +116,7 @@ def format_threshold_alert(alert: SpendingLimitThresholdAlert, currency: str) ->
                 ),
                 f"Использовано: {_format_percent(alert.usage_percent)}.",
                 f"Осталось: {format_money_minor(alert.remaining_amount, currency)}.",
+                "Расход уже записан; это только предупреждение о темпе.",
             ]
         )
 
@@ -123,6 +129,7 @@ def format_threshold_alert(alert: SpendingLimitThresholdAlert, currency: str) ->
             ),
             f"Использовано: {_format_percent(alert.usage_percent)}.",
             f"Превышение: {format_money_minor(alert.overrun_amount, currency)}.",
+            "Это превышение уменьшит сумму, которую можно отложить по итогам месяца.",
         ]
     )
 

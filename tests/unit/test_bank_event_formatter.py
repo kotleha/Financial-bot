@@ -49,6 +49,7 @@ def test_format_bank_import_result_for_expense_candidate() -> None:
     assert "Событие: #42" in text
     assert "Сумма: 290 ₽" in text
     assert "Категория-кандидат: Косметология/Медицина (по SMS-подсказке)" in text
+    assert "Почему так: SMS или продавец похожи на известные слова этой категории." in text
     assert "Пока не записываю в расходы" in text
 
 
@@ -75,6 +76,7 @@ def test_format_bank_import_result_explains_learned_rule() -> None:
     )
 
     assert "Категория-кандидат: Продукты (по прошлым подтверждениям)" in text
+    assert "Почему так: похожего продавца уже подтверждали в этой категории." in text
 
 
 def test_format_bank_import_result_for_internal_transfer() -> None:
@@ -102,6 +104,7 @@ def test_format_bank_import_result_for_internal_transfer() -> None:
     assert "Уже видел это SMS:" in text
     assert "внутренний перевод, не расход" in text
     assert "Контрагент: свой счёт" in text
+    assert "Перевод между своими счетами: в расходы, лимиты и графики категорий не попадёт." in text
 
 
 def test_format_bank_import_result_for_income_explains_explicit_confirm_flow() -> None:
@@ -204,6 +207,7 @@ def test_format_bank_event_confirmed_with_created_learning_rule() -> None:
 
     assert "Запомнил для будущих SMS: UNKNOWN SHOP → Продукты." in text
     assert "Если подтвердите похожее SMS ещё раз" in text
+    assert "Правило можно отключить или изменить в «🧠 Правила категорий»." in text
     assert "MIR-1111" not in text
     assert "Баланс" not in text
     assert "secret" not in text
@@ -289,7 +293,7 @@ def test_format_bank_event_income_confirmed() -> None:
     assert "✅ Учёл доход:" in text
     assert "+50 000 ₽ — Доходы" in text
     assert "Событие: #45" not in text
-    assert "В расходы, лимиты и графики категорий не входит." in text
+    assert "Доходы не входят в расходные лимиты, графики категорий и отчёты по расходам." in text
     assert "MIR-1111" not in text
     assert "Баланс" not in text
 
@@ -318,8 +322,8 @@ def test_format_bank_event_autosaved_is_compact_and_without_buttons_context() ->
 
     assert "✅ Записал автоматически:" in text
     assert "150 ₽ — Продукты" in text
-    assert "Основание: правило по прошлым подтверждениям." in text
-    assert "Если это ошибка, исправьте кнопками ниже." in text
+    assert "Основание: похожего продавца уже подтверждали в этой категории." in text
+    assert "Кнопки ниже меняют уже записанную операцию" in text
     assert "Событие" not in text
     assert "MIR-1111" not in text
 

@@ -6,6 +6,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from financial_bot.app.bot.formatters.context_hints import (
+    ALIAS_SAFETY_HINT,
+    ALIAS_SETTINGS_HINT,
+    CATEGORY_SETTINGS_HINT,
+)
 from financial_bot.app.bot.keyboards.category_settings import (
     CategorySettingsAction,
     CategorySettingsActionCallback,
@@ -69,6 +74,7 @@ async def category_settings_start(
         message,
         session,
         "Выберите категорию, которую нужно настроить.",
+        CATEGORY_SETTINGS_HINT,
     )
 
 
@@ -83,6 +89,7 @@ async def alias_settings_start(
         message,
         session,
         "Выберите категорию, к которой нужно добавить алиас.",
+        ALIAS_SETTINGS_HINT,
     )
 
 
@@ -129,6 +136,7 @@ async def category_settings_action_selected(
                 callback.message,
                 session,
                 "Выберите категорию, которую нужно настроить.",
+                CATEGORY_SETTINGS_HINT,
             )
         return
 
@@ -138,7 +146,9 @@ async def category_settings_action_selected(
         await callback.answer()
         if callback.message is not None:
             await callback.message.answer(
-                f"{details.sort_order}. {details.title}\n\nВведите новое название категории."
+                f"{details.sort_order}. {details.title}\n\n"
+                "Введите новое название категории.\n"
+                f"{CATEGORY_SETTINGS_HINT}"
             )
         return
 
@@ -150,7 +160,9 @@ async def category_settings_action_selected(
             await callback.message.answer(
                 f"{details.sort_order}. {details.title}\n\n"
                 "Введите новый алиас: магазин, сервис или слово, по которому бот должен "
-                "узнавать эту категорию."
+                "узнавать эту категорию.\n"
+                f"{ALIAS_SETTINGS_HINT}\n"
+                f"{ALIAS_SAFETY_HINT}"
             )
 
 
@@ -286,9 +298,13 @@ async def _answer_category_settings_list(
     message: Message,
     session: AsyncSession,
     intro: str,
+    hint: str,
 ) -> None:
     lines = await CategorySettingsService(session).list_categories()
-    await message.answer(intro, reply_markup=build_category_settings_keyboard(lines))
+    await message.answer(
+        f"{intro}\n\n{hint}",
+        reply_markup=build_category_settings_keyboard(lines),
+    )
 
 
 def _format_category_settings_card(details: CategorySettingsDetails) -> str:
@@ -297,6 +313,9 @@ def _format_category_settings_card(details: CategorySettingsDetails) -> str:
             f"{details.sort_order}. {details.title}",
             "",
             _format_aliases(details.aliases),
+            "",
+            CATEGORY_SETTINGS_HINT,
+            ALIAS_SAFETY_HINT,
             "",
             "Что сделать?",
         ]
@@ -323,6 +342,7 @@ def _format_category_rename_preview(details: CategorySettingsDetails, new_title:
             f"Будет: {new_title}",
             "",
             f"Номер {details.sort_order} и история расходов сохранятся.",
+            "Лимиты, алиасы и прошлые отчёты останутся на этой же категории.",
         ]
     )
 
@@ -334,6 +354,9 @@ def _format_category_alias_preview(details: CategorySettingsDetails, alias: str)
             "",
             f"Категория: {details.sort_order}. {details.title}",
             f"Алиас: {alias}",
+            "",
+            "После подтверждения бот будет использовать этот алиас при ручном вводе и банковских "
+            "подсказках.",
         ]
     )
 
@@ -383,6 +406,7 @@ async def _apply_category_settings_change(
                 "Обновил категорию:",
                 "",
                 f"{result.sort_order}. {result.old_title} → {result.new_title}",
+                "История расходов, лимиты и алиасы сохранены.",
             ]
         )
 
@@ -395,6 +419,7 @@ async def _apply_category_settings_change(
             "Добавил алиас:",
             "",
             f"{result.alias} → {result.sort_order}. {result.category_title}",
+            "Теперь это слово будет помогать распознавать категорию.",
         ]
     )
 

@@ -1,3 +1,10 @@
+from financial_bot.app.bot.formatters.context_hints import (
+    AUTOSAVE_ACTION_HINT,
+    INCOME_REPORT_HINT,
+    INTERNAL_TRANSFER_HINT,
+    LEARNING_RULE_MANAGEMENT_HINT,
+    bank_suggestion_hint,
+)
 from financial_bot.app.domain.money import format_money_minor
 from financial_bot.app.domain.types import (
     BankEventOperationKind,
@@ -65,8 +72,14 @@ def format_bank_import_result(result: BankImportResult) -> str:
         if source_label:
             category_line += f" ({source_label})"
         lines.append(category_line)
+        suggestion_hint = bank_suggestion_hint(result.suggested_category_source)
+        if suggestion_hint:
+            lines.append(suggestion_hint)
     if result.ignore_reason:
         lines.append(f"Причина: {result.ignore_reason}")
+
+    if result.operation_kind == BankEventOperationKind.INTERNAL_TRANSFER:
+        lines.extend(["", INTERNAL_TRANSFER_HINT])
 
     if result.operation_kind == BankEventOperationKind.INCOME:
         lines.extend(
@@ -143,7 +156,7 @@ def format_bank_event_income_confirmed(result: BankEventConfirmationResult) -> s
                 f"+{format_money_minor(result.transaction.amount, result.transaction.currency)} — "
                 f"{result.transaction.category_title}"
             ),
-            "В расходы, лимиты и графики категорий не входит.",
+            INCOME_REPORT_HINT,
         ]
     )
 
@@ -157,8 +170,8 @@ def format_bank_event_autosaved(result: BankImportResult) -> str:
     lines = [
         "✅ Записал автоматически:",
         amount_line,
-        "Основание: правило по прошлым подтверждениям.",
-        "Если это ошибка, исправьте кнопками ниже.",
+        "Основание: похожего продавца уже подтверждали в этой категории.",
+        AUTOSAVE_ACTION_HINT,
     ]
     if result.merchant:
         lines.append(f"Мерчант: {result.merchant}")
@@ -174,7 +187,7 @@ def format_bank_event_internal_transfer(result: BankEventUpdateResult) -> str:
         [
             "🔁 Перевод себе:",
             _event_update_amount_line(result),
-            "Статус: не входит в расходы.",
+            INTERNAL_TRANSFER_HINT,
         ]
     )
 
@@ -252,7 +265,7 @@ def _format_learning_rule_feedback(feedback: BankLearningRuleFeedback) -> tuple[
         headline = (
             f"Запомнил для будущих SMS: {feedback.merchant_display} → {feedback.category_title}."
         )
-        detail = AUTOSAVE_AFTER_NEXT_CONFIRMATION_TEXT
+        detail = f"{AUTOSAVE_AFTER_NEXT_CONFIRMATION_TEXT} {LEARNING_RULE_MANAGEMENT_HINT}"
     elif feedback.action == "reinforced":
         headline = (
             "Укрепил правило: "
@@ -260,14 +273,15 @@ def _format_learning_rule_feedback(feedback: BankLearningRuleFeedback) -> tuple[
             f"Подтверждений: {feedback.hit_count}."
         )
         detail = (
-            "Следующие похожие SMS будут записываться автоматически."
+            f"Следующие похожие SMS будут записываться автоматически. "
+            f"{LEARNING_RULE_MANAGEMENT_HINT}"
             if feedback.hit_count >= 2
-            else AUTOSAVE_AFTER_NEXT_CONFIRMATION_TEXT
+            else f"{AUTOSAVE_AFTER_NEXT_CONFIRMATION_TEXT} {LEARNING_RULE_MANAGEMENT_HINT}"
         )
     else:
         headline = (
             "Обновил правило для будущих SMS: "
             f"{feedback.merchant_display} → {feedback.category_title}."
         )
-        detail = AUTOSAVE_AFTER_NEXT_CONFIRMATION_TEXT
+        detail = f"{AUTOSAVE_AFTER_NEXT_CONFIRMATION_TEXT} {LEARNING_RULE_MANAGEMENT_HINT}"
     return (headline, detail)

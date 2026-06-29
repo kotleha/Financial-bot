@@ -222,6 +222,8 @@ Settings menu buttons:
 recognition alias. `🔤 Алиасы` opens the same category list with alias setup in mind. Category
 codes, numbers, transaction history, reports, and limits stay attached to the category. Creating,
 hiding, deleting, and reordering categories are intentionally deferred to a separate safer slice.
+The bot shows contextual hints in these dialogs: what a category rename changes, how aliases help
+manual input and bank SMS recognition, and why very short or numeric aliases are rejected.
 
 Income can be entered manually from `➕ Доход` or `/income`, and bank SMS income can be confirmed
 with `Учесть доход`. Income appears in the separate cashflow report and export sheets. It does not
@@ -295,10 +297,17 @@ with a merchant and category, future events from the same bank and merchant can 
 category with the hint `по прошлым подтверждениям`. After repeated confirmations, active learned
 rules can record matching SMS automatically; the autosaved card has buttons to fix the category,
 mark it as an internal transfer, delete the autosaved expense, or disable the rule.
+Bank cards explain why a category was suggested: SMS parser hint, previous confirmations, or manual
+choice. Internal-transfer and income cards also state clearly that they do not affect expense
+limits or expense category charts.
 
 Learned rules can be managed from `🏦 Автоучёт` -> `🧠 Правила категорий` or from settings
 `🏦 Банки`. Each family user sees only their own rules. A rule can be opened, assigned to another
 category, disabled, or enabled again.
+
+Budget and limit reports explain the difference between a spending limit, a no-limit category, and
+a savings target. The estimated savings pool is calculated as remaining limit amounts minus
+overruns; categories without limits are counted in expenses but not in that estimate.
 
 Internal transfers are supported in free text and excluded from reports:
 

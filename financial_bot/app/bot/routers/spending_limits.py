@@ -7,6 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from financial_bot.app.bot.formatters.context_hints import BUDGET_RULE_HINT
 from financial_bot.app.bot.formatters.spending_limits import (
     format_budget_report,
     format_limits_overview,
@@ -521,7 +522,7 @@ async def _answer_limit_category_list(
 ) -> None:
     overview = await SpendingLimitService(session, settings).build_limits_overview()
     await message.answer(
-        "Выберите категорию, для которой нужно настроить лимит.",
+        f"Выберите категорию, для которой нужно настроить лимит.\n\n{BUDGET_RULE_HINT}",
         reply_markup=build_limit_category_keyboard(overview.lines, currency=overview.currency),
     )
 
@@ -542,6 +543,7 @@ async def _format_category_limit_card(
             category.title,
             "",
             f"Текущее правило: {_format_detailed_rule(rule, settings.default_currency)}",
+            BUDGET_RULE_HINT,
             "",
             "Что сделать?",
         ]
