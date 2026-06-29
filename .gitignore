@@ -1,0 +1,29 @@
+# Local Codex working memory.
+.codex-memory/
+
+# Internal project plans, audits, research notes, and production runbooks.
+docs/
+
+# Local environment and secrets.
+.env
+*.env
+*.db
+*.sqlite
+*.sqlite3
+
+# Python local state.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Runtime exports and temporary files.
+csv_reports/
+exports/
+tmp/

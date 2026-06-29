@@ -1,0 +1,28 @@
+services:
+  bot:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////app/data/family_finance_bot.sqlite3
+      ALLOWED_TELEGRAM_IDS: ${ALLOWED_TELEGRAM_IDS}
+      HUSBAND_TELEGRAM_ID: ${HUSBAND_TELEGRAM_ID}
+      WIFE_TELEGRAM_ID: ${WIFE_TELEGRAM_ID}
+      DEFAULT_CURRENCY: ${DEFAULT_CURRENCY:-RUB}
+      TIMEZONE: ${TIMEZONE:-Asia/Barnaul}
+      GOOGLE_SPREADSHEET_ID: ${GOOGLE_SPREADSHEET_ID:-}
+      GOOGLE_CREDENTIALS_PATH: ${GOOGLE_CREDENTIALS_PATH:-}
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-1}
+      RUN_SEED: ${RUN_SEED:-1}
+    secrets:
+      - bot_token
+    volumes:
+      - family_finance_data:/app/data
+      - ./backups:/app/backups
+
+secrets:
+  bot_token:
+    file: ./secrets/bot_token.txt
+
+volumes:
+  family_finance_data:
