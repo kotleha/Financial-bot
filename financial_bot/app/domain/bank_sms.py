@@ -127,6 +127,10 @@ SBER_ACCOUNT_PAYMENT_RE = re.compile(
     rf"{BALANCE_RE}$",
     re.IGNORECASE,
 )
+SBER_ACCOUNT_PURCHASE_RE = re.compile(
+    rf"^СЧ[ЕЁ]Т\d+\s+{TIME_RE}\s+Покупка\s+{MONEY_RE}\s+{MERCHANT_RE}{BALANCE_RE}$",
+    re.IGNORECASE,
+)
 TBANK_SBP_PAYMENT_RE = re.compile(
     rf"^Оплата\s+СБП,\s+сч[её]т\s+RUB\.\s+{TBANK_AMOUNT_RE}\.\s+"
     rf"{MERCHANT_RE}{TBANK_AVAILABLE_RE}$",
@@ -454,6 +458,16 @@ def _parse_sber(text: str, redacted_text: str, self_aliases: set[str]) -> Parsed
             bank=BankSmsBank.SBER,
             amount_raw=match.group("amount"),
             merchant=_clean_party(match.group("merchant") or ""),
+            source=TransactionSource.TRANSFER,
+            redacted_text=redacted_text,
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
+    if match := SBER_ACCOUNT_PURCHASE_RE.fullmatch(text):
+        return _expense_candidate(
+            bank=BankSmsBank.SBER,
+            amount_raw=match.group("amount"),
+            merchant=_clean_party(match.group("merchant")),
             source=TransactionSource.TRANSFER,
             redacted_text=redacted_text,
             operation_time=_parse_operation_time(match.group("time")),

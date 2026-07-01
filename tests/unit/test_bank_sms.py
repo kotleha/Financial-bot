@@ -44,6 +44,13 @@ SELF_ALIASES = {"SELF PERSON", "FAMILY ACCOUNT"}
             404000,
         ),
         (
+            "СЧЁТ1111 22:05 Покупка 1200р SHABBA TEST Баланс: 999р",
+            "900",
+            BankSmsBank.SBER,
+            None,
+            120000,
+        ),
+        (
             "Счёт карты MIR-1111 10:17 Покупка по СБП 7342р LEMAN TEST Баланс: 999р",
             "900",
             BankSmsBank.SBER,
@@ -96,6 +103,22 @@ def test_sber_operation_amount_is_not_confused_with_balance() -> None:
     )
 
     assert parsed.amount == 29_000
+
+
+def test_sber_account_purchase_is_expense_candidate() -> None:
+    parsed = parse_bank_sms(
+        "СЧЁТ1111 22:05 Покупка 1200р SHABBA TEST Баланс: 999р",
+        sender="900",
+    )
+
+    assert parsed.bank == BankSmsBank.SBER
+    assert parsed.operation_kind == BankSmsOperationKind.EXPENSE_CANDIDATE
+    assert parsed.amount == 120_000
+    assert parsed.merchant == "SHABBA TEST"
+    assert parsed.source == TransactionSource.TRANSFER
+    assert parsed.operation_time == time(22, 5)
+    assert "СЧЁТ1111" not in parsed.redacted_text
+    assert "Баланс: <redacted>" in parsed.redacted_text
 
 
 def test_tbank_operation_amount_is_not_confused_with_available_balance() -> None:
