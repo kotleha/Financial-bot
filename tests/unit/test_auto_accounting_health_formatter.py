@@ -8,6 +8,7 @@ from financial_bot.app.services.auto_accounting_health_service import (
     AutoAccountingHealth,
     AutoAccountingRuleHealth,
     AutoAccountingSourceHealth,
+    AutoAccountingUnknownShapeHealth,
 )
 
 
@@ -88,6 +89,21 @@ def test_auto_accounting_health_formatter_summarizes_sources_without_sensitive_p
                     last_used_at=datetime(2026, 6, 28, 9, 10),
                 ),
             ),
+            unknown_shapes=(
+                AutoAccountingUnknownShapeHealth(
+                    source_code="husband-sber-ios",
+                    bank="sber",
+                    owner_role="husband",
+                    count=3,
+                    last_received_at=datetime(2026, 6, 28, 9, 10),
+                    operation_markers=("purchase",),
+                    amount_count=1,
+                    has_balance_marker=True,
+                    has_instrument_marker=True,
+                    ignored_reason="",
+                    has_security_marker=False,
+                ),
+            ),
         )
     )
 
@@ -100,6 +116,9 @@ def test_auto_accounting_health_formatter_summarizes_sources_without_sensitive_p
     assert "Не расходы: доходы 1, возвраты 1, переводы себе 1" in text
     assert "Ошибки доставки в Telegram: 1" in text
     assert "Неизвестный формат: 3" in text
+    assert "Неизвестные форматы:" in text
+    assert "SBER · муж · husband-sber-ios: 3 шт." in text
+    assert "операции: покупка; суммы: 1; баланс: да; счёт/карта: да" in text
     assert "Служебные/реклама: 4" in text
     assert "Спорные подсказки категорий: 2" in text
     assert "Правила категорий:" in text

@@ -107,6 +107,38 @@ async def test_manual_bank_sms_import_stores_redacted_event_and_deduplicates(
 
 
 @pytest.mark.asyncio
+async def test_manual_bank_sms_import_uses_safe_expense_fallback(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+
+        result = await BankIngestionService(session, settings).import_manual_sms(
+            text="СЧЁТ1111 01.07.26 22:05 Оплата 1200р SERVICE TEST Баланс: 999р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 7, 1, 15, 5, tzinfo=UTC),
+        )
+
+        event = await session.get(BankEventModel, result.event_id)
+        transaction_count = await session.scalar(select(func.count()).select_from(TransactionModel))
+
+    assert result.operation_kind == BankEventOperationKind.EXPENSE_CANDIDATE
+    assert result.parse_status == BankEventParseStatus.NEEDS_CONFIRMATION
+    assert result.amount == 120_000
+    assert result.merchant == "SERVICE TEST"
+    assert result.requires_confirmation
+    assert result.suggested_category_code is None
+    assert event is not None
+    assert event.transaction_id is None
+    assert event.amount == 120_000
+    assert event.source == TransactionSource.TRANSFER.value
+    assert event.occurred_at == datetime(2026, 7, 1, 22, 5)
+    assert transaction_count == 0
+
+
+@pytest.mark.asyncio
 async def test_manual_bank_sms_import_marks_self_counterparty_as_internal_transfer(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -129,6 +161,38 @@ async def test_manual_bank_sms_import_marks_self_counterparty_as_internal_transf
         assert event is not None
         assert event.counterparty == "self"
         assert "SELF PERSON" not in event.redacted_text
+
+
+@pytest.mark.asyncio
+async def test_manual_bank_sms_import_uses_safe_internal_transfer_fallback(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+
+        service = BankIngestionService(session, settings)
+        result = await service.import_manual_sms(
+            text="СЧЁТ1111 01.07.26 10:26 перевод 10р SELF PERSON Баланс: 999р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 7, 1, 15, 5, tzinfo=UTC),
+        )
+        pending = await service.list_pending_confirmation_events(telegram_user_id=1001)
+
+        event = await session.get(BankEventModel, result.event_id)
+        transaction_count = await session.scalar(select(func.count()).select_from(TransactionModel))
+
+    assert result.operation_kind == BankEventOperationKind.INTERNAL_TRANSFER
+    assert result.parse_status == BankEventParseStatus.PARSED
+    assert result.suggested_category_code == "internal_transfer"
+    assert not result.requires_confirmation
+    assert pending == []
+    assert event is not None
+    assert event.counterparty == "self"
+    assert event.transaction_id is None
+    assert "SELF PERSON" not in event.redacted_text
+    assert transaction_count == 0
 
 
 @pytest.mark.asyncio
@@ -705,6 +769,40 @@ async def test_bank_event_dedupe_v2_ignores_balance_and_card_suffix_variants(
     assert not first.is_duplicate
     assert duplicate.is_duplicate
     assert event_count == 1
+
+
+@pytest.mark.asyncio
+async def test_bank_event_dedupe_keeps_same_merchant_different_amounts_distinct(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        service = BankIngestionService(session, settings)
+        first = await service.import_manual_sms(
+            text="Счёт карты MIR-1111 11:09 Покупка 290р APTEKA TEST Баланс: 924.14р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
+        )
+        second = await service.import_manual_sms(
+            text="Счёт карты MIR-2222 11:09 Покупка 390р APTEKA TEST Баланс: 534.14р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 6, 26, 12, 5, tzinfo=UTC),
+        )
+
+        event_count = await session.scalar(select(func.count()).select_from(BankEventModel))
+        first_event = await session.get(BankEventModel, first.event_id)
+        second_event = await session.get(BankEventModel, second.event_id)
+
+    assert not first.is_duplicate
+    assert not second.is_duplicate
+    assert first.event_id != second.event_id
+    assert event_count == 2
+    assert first_event is not None
+    assert second_event is not None
+    assert first_event.amount == 29_000
+    assert second_event.amount == 39_000
 
 
 @pytest.mark.asyncio

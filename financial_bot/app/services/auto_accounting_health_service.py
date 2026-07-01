@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from financial_bot.app.domain.bank_sms import classify_bank_sms_shape
 from financial_bot.app.domain.types import BankCategoryRuleMode
 from financial_bot.app.storage.repositories.bank_category_rule_repository import (
     BankCategoryRuleRepository,
@@ -60,6 +61,21 @@ class AutoAccountingRuleHealth:
 
 
 @dataclass(frozen=True, slots=True)
+class AutoAccountingUnknownShapeHealth:
+    source_code: str
+    bank: str
+    owner_role: str
+    count: int
+    last_received_at: datetime
+    operation_markers: tuple[str, ...]
+    amount_count: int
+    has_balance_marker: bool
+    has_instrument_marker: bool
+    ignored_reason: str
+    has_security_marker: bool
+
+
+@dataclass(frozen=True, slots=True)
 class AutoAccountingHealth:
     sources: tuple[AutoAccountingSourceHealth, ...]
     active_source_count: int
@@ -82,6 +98,7 @@ class AutoAccountingHealth:
     suggest_rule_count: int = 0
     disabled_rule_count: int = 0
     top_rules: tuple[AutoAccountingRuleHealth, ...] = ()
+    unknown_shapes: tuple[AutoAccountingUnknownShapeHealth, ...] = ()
 
     @property
     def saved_expense_count(self) -> int:
@@ -143,6 +160,10 @@ class AutoAccountingHealthService:
 
         rule_counts = await self._bank_rules.count_by_mode()
         top_rules = await self._get_top_rules()
+        unknown_shapes = await self._get_unknown_shapes(
+            sources_by_id={source.source_id: source for source in lines},
+            since=since,
+        )
         return AutoAccountingHealth(
             sources=tuple(lines),
             active_source_count=sum(1 for source in lines if source.is_active),
@@ -169,6 +190,7 @@ class AutoAccountingHealthService:
             suggest_rule_count=rule_counts.get(BankCategoryRuleMode.SUGGEST.value, 0),
             disabled_rule_count=rule_counts.get(BankCategoryRuleMode.DISABLED.value, 0),
             top_rules=top_rules,
+            unknown_shapes=unknown_shapes,
         )
 
     async def _get_top_rules(self) -> tuple[AutoAccountingRuleHealth, ...]:
@@ -188,6 +210,72 @@ class AutoAccountingHealthService:
                 )
             )
         return tuple(lines)
+
+    async def _get_unknown_shapes(
+        self,
+        *,
+        sources_by_id: dict[int, AutoAccountingSourceHealth],
+        since: datetime,
+    ) -> tuple[AutoAccountingUnknownShapeHealth, ...]:
+        grouped: dict[
+            tuple[int, tuple[str, ...], int, bool, bool, str, bool],
+            AutoAccountingUnknownShapeHealth,
+        ] = {}
+        for event in await self._bank_events.list_unknown_unlinked_events(since=since, limit=100):
+            source = sources_by_id.get(event.source_id)
+            if source is None:
+                continue
+
+            shape = classify_bank_sms_shape(
+                event.redacted_text, sender=_sender_for_bank(event.bank)
+            )
+            key = (
+                event.source_id,
+                shape.operation_markers,
+                shape.amount_count,
+                shape.has_balance_marker,
+                shape.has_instrument_marker,
+                shape.ignored_reason,
+                shape.has_security_marker,
+            )
+            previous = grouped.get(key)
+            if previous is None:
+                grouped[key] = AutoAccountingUnknownShapeHealth(
+                    source_code=source.code,
+                    bank=source.bank,
+                    owner_role=source.owner_role,
+                    count=1,
+                    last_received_at=event.received_at,
+                    operation_markers=shape.operation_markers,
+                    amount_count=shape.amount_count,
+                    has_balance_marker=shape.has_balance_marker,
+                    has_instrument_marker=shape.has_instrument_marker,
+                    ignored_reason=shape.ignored_reason,
+                    has_security_marker=shape.has_security_marker,
+                )
+                continue
+
+            grouped[key] = AutoAccountingUnknownShapeHealth(
+                source_code=previous.source_code,
+                bank=previous.bank,
+                owner_role=previous.owner_role,
+                count=previous.count + 1,
+                last_received_at=max(previous.last_received_at, event.received_at),
+                operation_markers=previous.operation_markers,
+                amount_count=previous.amount_count,
+                has_balance_marker=previous.has_balance_marker,
+                has_instrument_marker=previous.has_instrument_marker,
+                ignored_reason=previous.ignored_reason,
+                has_security_marker=previous.has_security_marker,
+            )
+
+        return tuple(
+            sorted(
+                grouped.values(),
+                key=lambda shape: (shape.count, shape.last_received_at),
+                reverse=True,
+            )[:5]
+        )
 
 
 def _empty_stats(source_id: int) -> BankEventSourceStats:
@@ -215,3 +303,13 @@ def _rule_mode(value: str, *, is_active: bool) -> BankCategoryRuleMode:
         return BankCategoryRuleMode(value)
     except ValueError:
         return BankCategoryRuleMode.SUGGEST if is_active else BankCategoryRuleMode.DISABLED
+
+
+def _sender_for_bank(bank: str) -> str:
+    if bank == "sber":
+        return "900"
+    if bank == "vtb":
+        return "VTB"
+    if bank == "tbank":
+        return "T-Bank"
+    return ""

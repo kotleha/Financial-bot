@@ -5,6 +5,7 @@ from financial_bot.app.services.auto_accounting_health_service import (
     AutoAccountingHealth,
     AutoAccountingRuleHealth,
     AutoAccountingSourceHealth,
+    AutoAccountingUnknownShapeHealth,
 )
 
 
@@ -53,8 +54,45 @@ def format_auto_accounting_health(health: AutoAccountingHealth) -> str:
     for source in health.sources:
         lines.extend(["", *_format_source_block(source)])
 
-    lines.extend(["", *_format_rules_block(health), "", *_format_action_block(health)])
+    lines.extend(
+        [
+            "",
+            *_format_unknown_shapes_block(health),
+            "",
+            *_format_rules_block(health),
+            "",
+            *_format_action_block(health),
+        ]
+    )
     return "\n".join(lines)
+
+
+def _format_unknown_shapes_block(health: AutoAccountingHealth) -> list[str]:
+    if health.unknown_event_count <= 0:
+        return ["Неизвестные форматы:", "Нет неизвестных форматов за период."]
+    if not health.unknown_shapes:
+        return [
+            "Неизвестные форматы:",
+            "Есть неизвестные события, но безопасных признаков для группировки нет.",
+        ]
+
+    lines = ["Неизвестные форматы:"]
+    for index, shape in enumerate(health.unknown_shapes, start=1):
+        lines.append(f"{index}. {_format_unknown_shape_line(shape)}")
+    return lines
+
+
+def _format_unknown_shape_line(shape: AutoAccountingUnknownShapeHealth) -> str:
+    markers = ", ".join(_operation_marker_label(marker) for marker in shape.operation_markers)
+    if not markers:
+        markers = "нет"
+    return (
+        f"{shape.bank.upper()} · {_owner_label(shape.owner_role)} · {shape.source_code}: "
+        f"{shape.count} шт., последнее {_format_datetime(shape.last_received_at)}; "
+        f"операции: {markers}; суммы: {shape.amount_count}; "
+        f"баланс: {_yes_no(shape.has_balance_marker)}; "
+        f"счёт/карта: {_yes_no(shape.has_instrument_marker)}"
+    )
 
 
 def _format_rules_block(health: AutoAccountingHealth) -> list[str]:
@@ -190,6 +228,24 @@ def _channel_label(channel: str) -> str:
         "android_notification": "Android",
     }
     return labels.get(channel, channel)
+
+
+def _operation_marker_label(marker: str) -> str:
+    labels = {
+        "refund": "возврат",
+        "purchase": "покупка",
+        "payment": "оплата",
+        "debit": "списание",
+        "income": "поступление",
+        "topup": "пополнение",
+        "credit": "зачисление",
+        "transfer": "перевод",
+    }
+    return labels.get(marker, marker)
+
+
+def _yes_no(value: bool) -> str:
+    return "да" if value else "нет"
 
 
 def _format_datetime(value: datetime | None) -> str:

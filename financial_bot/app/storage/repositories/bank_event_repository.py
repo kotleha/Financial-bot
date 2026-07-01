@@ -134,6 +134,25 @@ class BankEventRepository:
         )
         return list(result.scalars())
 
+    async def list_unknown_unlinked_events(
+        self,
+        *,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[BankEventModel]:
+        query = (
+            select(BankEventModel)
+            .where(BankEventModel.operation_kind == "unknown")
+            .where(BankEventModel.transaction_id.is_(None))
+            .order_by(BankEventModel.received_at.desc(), BankEventModel.id.desc())
+            .limit(limit)
+        )
+        if since is not None:
+            query = query.where(BankEventModel.received_at >= since)
+
+        result = await self._session.execute(query)
+        return list(result.scalars())
+
     async def list_pending_confirmation_events_for_owner(
         self,
         *,

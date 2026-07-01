@@ -2,6 +2,14 @@ import re
 from dataclasses import dataclass
 from datetime import time
 
+from financial_bot.app.domain.bank_sms_profiles import (
+    COMMON_OPERATION_MARKERS,
+    SECURITY_MARKER_RE,
+    SHAPE_AMOUNT_RE,
+    SHAPE_BALANCE_MARKER_RE,
+    SHAPE_INSTRUMENT_MARKER_RE,
+    detect_bank_from_profiles,
+)
 from financial_bot.app.domain.money import AMOUNT_VALUE_PATTERN, parse_amount_to_minor_units
 from financial_bot.app.domain.types import (
     BankEventBank,
@@ -35,14 +43,44 @@ class ParsedBankSms:
         return self.operation_kind == BankSmsOperationKind.EXPENSE_CANDIDATE
 
 
+@dataclass(frozen=True, slots=True)
+class BankSmsShape:
+    bank: BankSmsBank
+    operation_markers: tuple[str, ...]
+    amount_count: int
+    has_balance_marker: bool
+    has_instrument_marker: bool
+    ignored_reason: str = ""
+    has_security_marker: bool = False
+
+    @property
+    def is_ignored(self) -> bool:
+        return bool(self.ignored_reason)
+
+    @property
+    def has_operation_marker(self) -> bool:
+        return bool(self.operation_markers)
+
+    @property
+    def has_minimum_operation_shape(self) -> bool:
+        return (
+            not self.is_ignored
+            and self.has_operation_marker
+            and self.has_balance_marker
+            and self.amount_count >= 2
+        )
+
+
 MONEY_RE = rf"(?P<amount>{AMOUNT_VALUE_PATTERN})\s*(?:₽|руб\.?|р\.?|RUB)"
 FEE_RE = rf"(?P<fee>{AMOUNT_VALUE_PATTERN})\s*(?:₽|руб\.?|р\.?|RUB)"
 TIME_RE = r"(?P<time>\d{2}:\d{2})"
+SBER_OPTIONAL_OPERATION_DATE_RE = r"(?:\s+\d{2}\.\d{2}\.\d{2,4})?"
 SBER_CARD_OPERATION_PREFIX_RE = (
-    rf"^Сч[её]т\s+карты\s+MIR-\d+(?:\s+\d{{2}}\.\d{{2}}\.\d{{2,4}})?\s+{TIME_RE}\s+"
+    rf"^Сч[её]т\s+карты\s+MIR-\d+{SBER_OPTIONAL_OPERATION_DATE_RE}\s+{TIME_RE}\s+"
 )
 BALANCE_RE = rf"\s+Баланс:?\s+{AMOUNT_VALUE_PATTERN}\s*(?:₽|руб\.?|р\.?|RUB)"
 VTB_BALANCE_RE = rf"\s+Баланс\s+{AMOUNT_VALUE_PATTERN}\s*(?:₽|руб\.?|р\.?|RUB)"
+VTB_FALLBACK_BALANCE_RE = rf"\s+Баланс:?\s+{AMOUNT_VALUE_PATTERN}\s*(?:₽|руб\.?|р\.?|RUB)"
 TBANK_AVAILABLE_RE = rf"\s+Доступно\s+{AMOUNT_VALUE_PATTERN}\s*RUB"
 TBANK_BALANCE_RE = rf"\s+Баланс\s+{AMOUNT_VALUE_PATTERN}\s*RUB"
 TBANK_AMOUNT_RE = rf"(?P<amount>{AMOUNT_VALUE_PATTERN})\s*RUB"
@@ -85,10 +123,27 @@ VTB_INCOMING_CREDIT_RE = re.compile(
     rf"{VTB_BALANCE_RE}\s+{TIME_RE}$",
     re.IGNORECASE,
 )
+VTB_SAFE_OUTGOING_DEBIT_FALLBACK_RE = re.compile(
+    rf"^Списание\s+{MONEY_RE}\s+{VTB_ACCOUNT_MASK_RE}\s+"
+    rf"{COUNTERPARTY_RE}{VTB_FALLBACK_BALANCE_RE}(?:\s+{TIME_RE})?$",
+    re.IGNORECASE,
+)
+VTB_SAFE_INCOMING_CREDIT_FALLBACK_RE = re.compile(
+    rf"^Поступление\s+{MONEY_RE}\s+{VTB_ACCOUNT_MASK_RE}\s+от\s+{COUNTERPARTY_RE}"
+    rf"{VTB_FALLBACK_BALANCE_RE}(?:\s+{TIME_RE})?$",
+    re.IGNORECASE,
+)
 
 SBER_CARD_REFUND_RE = re.compile(
     rf"{SBER_CARD_OPERATION_PREFIX_RE}Возврат\s+покупки\s+по\s+СБП\s+"
     rf"{MONEY_RE}\s+{MERCHANT_RE}{BALANCE_RE}$",
+    re.IGNORECASE,
+)
+SBER_SAFE_REFUND_FALLBACK_RE = re.compile(
+    rf"^(?P<instrument>Сч[её]т\s+карты\s+MIR-\d+|СЧ[ЕЁ]Т\d+)"
+    rf"{SBER_OPTIONAL_OPERATION_DATE_RE}\s+{TIME_RE}\s+"
+    rf"Возврат\s+покупки(?P<sbp>\s+по\s+СБП)?\s+{MONEY_RE}\s+"
+    rf"{MERCHANT_RE}{BALANCE_RE}$",
     re.IGNORECASE,
 )
 SBER_CARD_SBP_PURCHASE_RE = re.compile(
@@ -117,9 +172,20 @@ SBER_INCOMING_SBP_RE = re.compile(
     rf"{MONEY_RE}\s+от\s+{COUNTERPARTY_RE}{BALANCE_RE}$",
     re.IGNORECASE,
 )
+SBER_SAFE_INCOMING_SBP_FALLBACK_RE = re.compile(
+    rf"^СЧ[ЕЁ]Т\d+{SBER_OPTIONAL_OPERATION_DATE_RE}\s+{TIME_RE}\s+"
+    rf"Перевод\s+по\s+СБП\s+из\s+.+?\s+\+{MONEY_RE}\s+от\s+"
+    rf"{COUNTERPARTY_RE}{BALANCE_RE}$",
+    re.IGNORECASE,
+)
 SBER_OUTGOING_TRANSFER_RE = re.compile(
     rf"^СЧ[ЕЁ]Т\d+\s+{TIME_RE}\s+перевод\s+{MONEY_RE}(?:\s+{COUNTERPARTY_RE})?"
     rf"{BALANCE_RE}$",
+    re.IGNORECASE,
+)
+SBER_SAFE_OUTGOING_TRANSFER_FALLBACK_RE = re.compile(
+    rf"^СЧ[ЕЁ]Т\d+{SBER_OPTIONAL_OPERATION_DATE_RE}\s+{TIME_RE}\s+перевод\s+"
+    rf"{MONEY_RE}(?:\s+{COUNTERPARTY_RE})?{BALANCE_RE}$",
     re.IGNORECASE,
 )
 SBER_SALARY_RE = re.compile(
@@ -131,6 +197,12 @@ SBER_GENERIC_CREDIT_RE = re.compile(
     rf"^СЧ[ЕЁ]Т\d+\s+{TIME_RE}\s+Зачисление\s+{MONEY_RE}{BALANCE_RE}$",
     re.IGNORECASE,
 )
+SBER_SAFE_CREDIT_FALLBACK_RE = re.compile(
+    rf"^СЧ[ЕЁ]Т\d+{SBER_OPTIONAL_OPERATION_DATE_RE}\s+{TIME_RE}\s+"
+    rf"(?:Поступление|Пополнение|Зачисление)(?:\s+(?:зарплаты|аванса))?\s+"
+    rf"{MONEY_RE}(?:\s+от\s+{COUNTERPARTY_RE})?{BALANCE_RE}$",
+    re.IGNORECASE,
+)
 SBER_ACCOUNT_PAYMENT_RE = re.compile(
     rf"^СЧ[ЕЁ]Т\d+\s+{TIME_RE}\s+Оплата\s+{MONEY_RE}(?:\s+{MERCHANT_RE})?"
     rf"{BALANCE_RE}$",
@@ -138,6 +210,19 @@ SBER_ACCOUNT_PAYMENT_RE = re.compile(
 )
 SBER_ACCOUNT_PURCHASE_RE = re.compile(
     rf"^СЧ[ЕЁ]Т\d+\s+{TIME_RE}\s+Покупка\s+{MONEY_RE}\s+{MERCHANT_RE}{BALANCE_RE}$",
+    re.IGNORECASE,
+)
+SBER_SAFE_EXPENSE_FALLBACK_RE = re.compile(
+    rf"^(?P<instrument>Сч[её]т\s+карты\s+MIR-\d+|СЧ[ЕЁ]Т\d+)"
+    rf"(?:\s+\d{{2}}\.\d{{2}}\.\d{{2,4}})?\s+{TIME_RE}\s+"
+    rf"(?P<operation>Покупка|Оплата)(?P<sbp>\s+по\s+СБП)?\s+{MONEY_RE}"
+    rf"(?:\s+{MERCHANT_RE})?{BALANCE_RE}$",
+    re.IGNORECASE,
+)
+VTB_SAFE_PAYMENT_FALLBACK_RE = re.compile(
+    rf"^Оплата(?P<adjusted>\s+с\s+учетом\s+возврата)?\s+{MONEY_RE}\s+"
+    rf"{VTB_PAYMENT_INSTRUMENT_RE}\s+{MERCHANT_RE}{VTB_FALLBACK_BALANCE_RE}"
+    rf"(?:\s+{TIME_RE})?$",
     re.IGNORECASE,
 )
 TBANK_SBP_PAYMENT_RE = re.compile(
@@ -150,9 +235,24 @@ TBANK_TOPUP_RE = re.compile(
     rf"{COUNTERPARTY_RE}{TBANK_AVAILABLE_RE}$",
     re.IGNORECASE,
 )
+TBANK_SAFE_TOPUP_FALLBACK_RE = re.compile(
+    rf"^Пополнение[,]?\s+сч[её]т\s+RUB\.?\s+{TBANK_AMOUNT_RE}\.?\s+"
+    rf"{COUNTERPARTY_RE}{TBANK_AVAILABLE_RE}$",
+    re.IGNORECASE,
+)
 TBANK_CARD_TRANSFER_RE = re.compile(
     rf"^Перевод\.\s+Карта\s+\*\d+\.\s+{TBANK_AMOUNT_RE}\.\s+"
     rf"{COUNTERPARTY_RE}{TBANK_BALANCE_RE}$",
+    re.IGNORECASE,
+)
+TBANK_SAFE_CARD_TRANSFER_FALLBACK_RE = re.compile(
+    rf"^Перевод\.?\s+Карта\s+\*\d+\.?\s+{TBANK_AMOUNT_RE}\.?\s+"
+    rf"{COUNTERPARTY_RE}{TBANK_BALANCE_RE}$",
+    re.IGNORECASE,
+)
+TBANK_SAFE_PAYMENT_FALLBACK_RE = re.compile(
+    rf"^Оплата(?:\s+СБП)?[,]?\s+сч[её]т\s+RUB\.?\s+{TBANK_AMOUNT_RE}\.?\s+"
+    rf"{MERCHANT_RE}{TBANK_AVAILABLE_RE}$",
     re.IGNORECASE,
 )
 
@@ -204,6 +304,24 @@ def parse_bank_sms(
     )
 
 
+def classify_bank_sms_shape(text: str, *, sender: str = "") -> BankSmsShape:
+    normalized_text = _normalize_text(text)
+    ignored_reason = _ignore_reason(normalized_text)
+    return BankSmsShape(
+        bank=_detect_bank(normalized_text, sender),
+        operation_markers=tuple(
+            marker.code
+            for marker in COMMON_OPERATION_MARKERS
+            if marker.pattern.search(normalized_text)
+        ),
+        amount_count=len(SHAPE_AMOUNT_RE.findall(normalized_text)),
+        has_balance_marker=bool(SHAPE_BALANCE_MARKER_RE.search(normalized_text)),
+        has_instrument_marker=bool(SHAPE_INSTRUMENT_MARKER_RE.search(normalized_text)),
+        ignored_reason=ignored_reason,
+        has_security_marker=bool(SECURITY_MARKER_RE.search(normalized_text)),
+    )
+
+
 def redact_bank_sms_text(text: str) -> str:
     redacted = _normalize_text(text)
     redacted = re.sub(
@@ -241,21 +359,22 @@ def redact_bank_sms_text(text: str) -> str:
         flags=re.IGNORECASE,
     )
     redacted = re.sub(
-        rf"(СЧЁТ<redacted>\s+\d{{2}}:\d{{2}}\s+перевод\s+{AMOUNT_VALUE_PATTERN}"
+        rf"(СЧЁТ<redacted>(?:\s+\d{{2}}\.\d{{2}}\.\d{{2,4}})?"
+        rf"\s+\d{{2}}:\d{{2}}\s+перевод\s+{AMOUNT_VALUE_PATTERN}"
         r"\s*(?:₽|руб\.?|р\.?)?\s+).+?(\s+Баланс:?\s+<redacted>)",
         r"\1<counterparty>\2",
         redacted,
         flags=re.IGNORECASE,
     )
     redacted = re.sub(
-        rf"(Пополнение,\s+сч[её]т\s+RUB\.\s+{AMOUNT_VALUE_PATTERN}\s*RUB\.\s+)"
+        rf"(Пополнение[,]?\s+сч[её]т\s+RUB\.?\s+{AMOUNT_VALUE_PATTERN}\s*RUB\.?\s+)"
         r".+?(\s+Доступно\s+<redacted>)",
         r"\1<counterparty>\2",
         redacted,
         flags=re.IGNORECASE,
     )
     redacted = re.sub(
-        rf"(Перевод\.\s+Карта\*<redacted>\.\s+{AMOUNT_VALUE_PATTERN}\s*RUB\.\s+)"
+        rf"(Перевод\.?\s+Карта\*<redacted>\.?\s+{AMOUNT_VALUE_PATTERN}\s*RUB\.?\s+)"
         r".+?(\s+Баланс:?\s+<redacted>)",
         r"\1<counterparty>\2",
         redacted,
@@ -337,6 +456,66 @@ def _parse_vtb(text: str, redacted_text: str, self_aliases: set[str]) -> ParsedB
             operation_time=_parse_operation_time(match.group("time")),
         )
 
+    if match := VTB_SAFE_OUTGOING_DEBIT_FALLBACK_RE.fullmatch(text):
+        counterparty = _clean_party(match.group("counterparty"))
+        amount = _parse_amount(match.group("amount"))
+        if _is_self_counterparty(counterparty, self_aliases):
+            return ParsedBankSms(
+                bank=BankSmsBank.VTB,
+                operation_kind=BankSmsOperationKind.INTERNAL_TRANSFER,
+                amount=amount,
+                counterparty=counterparty,
+                source=TransactionSource.TRANSFER,
+                suggested_category_code="internal_transfer",
+                requires_confirmation=False,
+                redacted_text=redacted_text,
+                operation_time=_parse_operation_time(match.group("time")),
+            )
+        return ParsedBankSms(
+            bank=BankSmsBank.VTB,
+            operation_kind=BankSmsOperationKind.EXPENSE_CANDIDATE,
+            amount=amount,
+            counterparty=counterparty,
+            source=TransactionSource.TRANSFER,
+            suggested_category_code="help_reserve",
+            redacted_text=redacted_text,
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
+    if match := VTB_SAFE_INCOMING_CREDIT_FALLBACK_RE.fullmatch(text):
+        counterparty = _clean_party(match.group("counterparty"))
+        amount = _parse_amount(match.group("amount"))
+        if _is_self_counterparty(counterparty, self_aliases):
+            operation_kind = BankSmsOperationKind.INTERNAL_TRANSFER
+            category_code = "internal_transfer"
+            requires_confirmation = False
+        else:
+            operation_kind = BankSmsOperationKind.INCOME
+            category_code = None
+            requires_confirmation = False
+        return ParsedBankSms(
+            bank=BankSmsBank.VTB,
+            operation_kind=operation_kind,
+            amount=amount,
+            counterparty=counterparty,
+            source=TransactionSource.TRANSFER,
+            suggested_category_code=category_code,
+            requires_confirmation=requires_confirmation,
+            redacted_text=redacted_text,
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
+    if match := VTB_SAFE_PAYMENT_FALLBACK_RE.fullmatch(text):
+        return _expense_candidate(
+            bank=BankSmsBank.VTB,
+            amount_raw=match.group("amount"),
+            merchant=_clean_party(match.group("merchant")),
+            source=_vtb_payment_source(match.group("instrument")),
+            redacted_text=redacted_text,
+            is_adjusted_amount=bool(match.group("adjusted")),
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
     return ParsedBankSms(
         bank=BankSmsBank.VTB,
         operation_kind=BankSmsOperationKind.UNKNOWN,
@@ -354,6 +533,22 @@ def _parse_sber(text: str, redacted_text: str, self_aliases: set[str]) -> Parsed
             amount=_parse_amount(match.group("amount")),
             merchant=merchant,
             source=TransactionSource.CARD,
+            suggested_category_code=_suggest_category_code(merchant),
+            redacted_text=redacted_text,
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
+    if match := SBER_SAFE_REFUND_FALLBACK_RE.fullmatch(text):
+        merchant = _clean_party(match.group("merchant"))
+        return ParsedBankSms(
+            bank=BankSmsBank.SBER,
+            operation_kind=BankSmsOperationKind.REFUND,
+            amount=_parse_amount(match.group("amount")),
+            merchant=merchant,
+            source=_sber_purchase_source(
+                instrument=match.group("instrument"),
+                is_sbp=bool(match.group("sbp")),
+            ),
             suggested_category_code=_suggest_category_code(merchant),
             redacted_text=redacted_text,
             operation_time=_parse_operation_time(match.group("time")),
@@ -430,7 +625,56 @@ def _parse_sber(text: str, redacted_text: str, self_aliases: set[str]) -> Parsed
             operation_time=_parse_operation_time(match.group("time")),
         )
 
+    if match := SBER_SAFE_INCOMING_SBP_FALLBACK_RE.fullmatch(text):
+        counterparty = _clean_party(match.group("counterparty"))
+        amount = _parse_amount(match.group("amount"))
+        if _is_self_counterparty(counterparty, self_aliases):
+            return ParsedBankSms(
+                bank=BankSmsBank.SBER,
+                operation_kind=BankSmsOperationKind.INTERNAL_TRANSFER,
+                amount=amount,
+                counterparty=counterparty,
+                source=TransactionSource.TRANSFER,
+                suggested_category_code="internal_transfer",
+                requires_confirmation=False,
+                redacted_text=redacted_text,
+                operation_time=_parse_operation_time(match.group("time")),
+            )
+        return ParsedBankSms(
+            bank=BankSmsBank.SBER,
+            operation_kind=BankSmsOperationKind.INCOME,
+            amount=amount,
+            counterparty=counterparty,
+            source=TransactionSource.TRANSFER,
+            requires_confirmation=False,
+            redacted_text=redacted_text,
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
     if match := SBER_OUTGOING_TRANSFER_RE.fullmatch(text):
+        counterparty = _clean_party(match.group("counterparty") or "")
+        amount = _parse_amount(match.group("amount"))
+        if counterparty and _is_self_counterparty(counterparty, self_aliases):
+            operation_kind = BankSmsOperationKind.INTERNAL_TRANSFER
+            category_code = "internal_transfer"
+            requires_confirmation = False
+        else:
+            operation_kind = BankSmsOperationKind.EXPENSE_CANDIDATE
+            category_code = "help_reserve"
+            requires_confirmation = True
+        return ParsedBankSms(
+            bank=BankSmsBank.SBER,
+            operation_kind=operation_kind,
+            amount=amount,
+            counterparty=counterparty,
+            source=TransactionSource.TRANSFER,
+            suggested_category_code=category_code,
+            requires_confirmation=requires_confirmation,
+            redacted_text=redacted_text,
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
+    if match := SBER_SAFE_OUTGOING_TRANSFER_FALLBACK_RE.fullmatch(text):
         counterparty = _clean_party(match.group("counterparty") or "")
         amount = _parse_amount(match.group("amount"))
         if counterparty and _is_self_counterparty(counterparty, self_aliases):
@@ -475,6 +719,27 @@ def _parse_sber(text: str, redacted_text: str, self_aliases: set[str]) -> Parsed
             operation_time=_parse_operation_time(match.group("time")),
         )
 
+    if match := SBER_SAFE_CREDIT_FALLBACK_RE.fullmatch(text):
+        counterparty = _clean_party(match.group("counterparty") or "")
+        amount = _parse_amount(match.group("amount"))
+        if counterparty and _is_self_counterparty(counterparty, self_aliases):
+            operation_kind = BankSmsOperationKind.INTERNAL_TRANSFER
+            category_code = "internal_transfer"
+        else:
+            operation_kind = BankSmsOperationKind.INCOME
+            category_code = None
+        return ParsedBankSms(
+            bank=BankSmsBank.SBER,
+            operation_kind=operation_kind,
+            amount=amount,
+            counterparty=counterparty,
+            source=TransactionSource.TRANSFER,
+            suggested_category_code=category_code,
+            requires_confirmation=False,
+            redacted_text=redacted_text,
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
     if match := SBER_ACCOUNT_PAYMENT_RE.fullmatch(text):
         return _expense_candidate(
             bank=BankSmsBank.SBER,
@@ -491,6 +756,19 @@ def _parse_sber(text: str, redacted_text: str, self_aliases: set[str]) -> Parsed
             amount_raw=match.group("amount"),
             merchant=_clean_party(match.group("merchant")),
             source=TransactionSource.TRANSFER,
+            redacted_text=redacted_text,
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
+    if match := SBER_SAFE_EXPENSE_FALLBACK_RE.fullmatch(text):
+        return _expense_candidate(
+            bank=BankSmsBank.SBER,
+            amount_raw=match.group("amount"),
+            merchant=_clean_party(match.group("merchant") or ""),
+            source=_sber_purchase_source(
+                instrument=match.group("instrument"),
+                is_sbp=bool(match.group("sbp")),
+            ),
             redacted_text=redacted_text,
             operation_time=_parse_operation_time(match.group("time")),
         )
@@ -533,6 +811,26 @@ def _parse_tbank(text: str, redacted_text: str, self_aliases: set[str]) -> Parse
             redacted_text=redacted_text,
         )
 
+    if match := TBANK_SAFE_TOPUP_FALLBACK_RE.fullmatch(text):
+        counterparty = _clean_party(match.group("counterparty"))
+        amount = _parse_amount(match.group("amount"))
+        if _is_self_counterparty(counterparty, self_aliases):
+            operation_kind = BankSmsOperationKind.INTERNAL_TRANSFER
+            category_code = "internal_transfer"
+        else:
+            operation_kind = BankSmsOperationKind.INCOME
+            category_code = None
+        return ParsedBankSms(
+            bank=BankSmsBank.TBANK,
+            operation_kind=operation_kind,
+            amount=amount,
+            counterparty=counterparty,
+            source=TransactionSource.TRANSFER,
+            suggested_category_code=category_code,
+            requires_confirmation=False,
+            redacted_text=redacted_text,
+        )
+
     if match := TBANK_CARD_TRANSFER_RE.fullmatch(text):
         counterparty = _clean_party(match.group("counterparty"))
         amount = _parse_amount(match.group("amount"))
@@ -552,6 +850,37 @@ def _parse_tbank(text: str, redacted_text: str, self_aliases: set[str]) -> Parse
             source=TransactionSource.TRANSFER,
             suggested_category_code=category_code,
             requires_confirmation=requires_confirmation,
+            redacted_text=redacted_text,
+        )
+
+    if match := TBANK_SAFE_CARD_TRANSFER_FALLBACK_RE.fullmatch(text):
+        counterparty = _clean_party(match.group("counterparty"))
+        amount = _parse_amount(match.group("amount"))
+        if _is_self_counterparty(counterparty, self_aliases):
+            operation_kind = BankSmsOperationKind.INTERNAL_TRANSFER
+            category_code = "internal_transfer"
+            requires_confirmation = False
+        else:
+            operation_kind = BankSmsOperationKind.EXPENSE_CANDIDATE
+            category_code = "help_reserve"
+            requires_confirmation = True
+        return ParsedBankSms(
+            bank=BankSmsBank.TBANK,
+            operation_kind=operation_kind,
+            amount=amount,
+            counterparty=counterparty,
+            source=TransactionSource.TRANSFER,
+            suggested_category_code=category_code,
+            requires_confirmation=requires_confirmation,
+            redacted_text=redacted_text,
+        )
+
+    if match := TBANK_SAFE_PAYMENT_FALLBACK_RE.fullmatch(text):
+        return _expense_candidate(
+            bank=BankSmsBank.TBANK,
+            amount_raw=match.group("amount"),
+            merchant=_clean_party(match.group("merchant")),
+            source=TransactionSource.TRANSFER,
             redacted_text=redacted_text,
         )
 
@@ -590,20 +919,7 @@ def _expense_candidate(
 
 
 def _detect_bank(text: str, sender: str) -> BankSmsBank:
-    sender_normalized = sender.strip().lower()
-    if text.startswith(("Оплата СБП, счет RUB.", "Пополнение, счет RUB.", "Перевод. Карта *")):
-        return BankSmsBank.TBANK
-    if text.startswith(("СЧЁТ", "СЧЕТ", "Счёт карты", "Счет карты")):
-        return BankSmsBank.SBER
-    if re.search(r"(?:Карта|Сч[её]т)\s*\*\d+", text, re.IGNORECASE):
-        return BankSmsBank.VTB
-    if sender_normalized in {"t-bank", "tbank", "т-банк", "тинькофф", "tinkoff"}:
-        return BankSmsBank.TBANK
-    if sender_normalized == "900":
-        return BankSmsBank.SBER
-    if sender_normalized in {"vtb", "втб"}:
-        return BankSmsBank.VTB
-    return BankSmsBank.UNKNOWN
+    return detect_bank_from_profiles(text, sender)
 
 
 def _ignored_redacted_text(bank: BankSmsBank, ignore_reason: str) -> str:

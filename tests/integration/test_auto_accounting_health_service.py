@@ -133,6 +133,7 @@ async def test_auto_accounting_health_aggregates_source_status(
                 dedupe_key="unknown",
                 parse_status=BankEventParseStatus.NEEDS_CONFIRMATION,
                 operation_kind=BankEventOperationKind.UNKNOWN,
+                redacted_text=("СЧЁТ<redacted> 10:20 Покупка 120р TEST SHOP Баланс: <redacted>"),
             )
         )
         await bank_events.add_event(
@@ -256,6 +257,14 @@ async def test_auto_accounting_health_aggregates_source_status(
     assert health.disabled_rule_count == 1
     assert health.top_rules[0].merchant_display == "MAGNIT"
     assert health.top_rules[0].category_title == "Продукты"
+    assert len(health.unknown_shapes) == 1
+    assert health.unknown_shapes[0].source_code == "husband-sber-ios"
+    assert health.unknown_shapes[0].bank == "sber"
+    assert health.unknown_shapes[0].count == 1
+    assert health.unknown_shapes[0].operation_markers == ("purchase",)
+    assert health.unknown_shapes[0].amount_count == 1
+    assert health.unknown_shapes[0].has_balance_marker
+    assert health.unknown_shapes[0].has_instrument_marker
 
     husband_line = next(source for source in health.sources if source.code == "husband-sber-ios")
     wife_line = next(source for source in health.sources if source.code == "wife-vtb-ios")
@@ -295,6 +304,7 @@ def _event(
     failed_at: datetime | None = None,
     transaction_id: int | None = None,
     suggestion_conflict: bool = False,
+    redacted_text: str = "redacted bank payload",
 ) -> BankEventModel:
     return BankEventModel(
         source_id=source_id,
@@ -306,7 +316,7 @@ def _event(
         amount=10_000,
         currency="RUB",
         merchant="TEST MERCHANT",
-        redacted_text="redacted bank payload",
+        redacted_text=redacted_text,
         normalized_text_hash=dedupe_key,
         dedupe_key=dedupe_key,
         suggestion_conflict=suggestion_conflict,
