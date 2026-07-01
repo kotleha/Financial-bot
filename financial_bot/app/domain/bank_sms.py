@@ -38,6 +38,9 @@ class ParsedBankSms:
 MONEY_RE = rf"(?P<amount>{AMOUNT_VALUE_PATTERN})\s*(?:₽|руб\.?|р\.?|RUB)"
 FEE_RE = rf"(?P<fee>{AMOUNT_VALUE_PATTERN})\s*(?:₽|руб\.?|р\.?|RUB)"
 TIME_RE = r"(?P<time>\d{2}:\d{2})"
+SBER_CARD_OPERATION_PREFIX_RE = (
+    rf"^Сч[её]т\s+карты\s+MIR-\d+(?:\s+\d{{2}}\.\d{{2}}\.\d{{2,4}})?\s+{TIME_RE}\s+"
+)
 BALANCE_RE = rf"\s+Баланс:?\s+{AMOUNT_VALUE_PATTERN}\s*(?:₽|руб\.?|р\.?|RUB)"
 VTB_BALANCE_RE = rf"\s+Баланс\s+{AMOUNT_VALUE_PATTERN}\s*(?:₽|руб\.?|р\.?|RUB)"
 TBANK_AVAILABLE_RE = rf"\s+Доступно\s+{AMOUNT_VALUE_PATTERN}\s*RUB"
@@ -84,23 +87,29 @@ VTB_INCOMING_CREDIT_RE = re.compile(
 )
 
 SBER_CARD_REFUND_RE = re.compile(
-    rf"^Сч[её]т\s+карты\s+MIR-\d+\s+{TIME_RE}\s+Возврат\s+покупки\s+по\s+СБП\s+"
+    rf"{SBER_CARD_OPERATION_PREFIX_RE}Возврат\s+покупки\s+по\s+СБП\s+"
     rf"{MONEY_RE}\s+{MERCHANT_RE}{BALANCE_RE}$",
     re.IGNORECASE,
 )
 SBER_CARD_SBP_PURCHASE_RE = re.compile(
-    rf"^Сч[её]т\s+карты\s+MIR-\d+\s+{TIME_RE}\s+Покупка\s+по\s+СБП\s+"
+    rf"{SBER_CARD_OPERATION_PREFIX_RE}Покупка\s+по\s+СБП\s+"
     rf"{MONEY_RE}\s+{MERCHANT_RE}{BALANCE_RE}$",
     re.IGNORECASE,
 )
 SBER_CARD_PURCHASE_RE = re.compile(
-    rf"^Сч[её]т\s+карты\s+MIR-\d+\s+{TIME_RE}\s+Покупка\s+"
+    rf"{SBER_CARD_OPERATION_PREFIX_RE}Покупка\s+"
     rf"{MONEY_RE}\s+{MERCHANT_RE}{BALANCE_RE}$",
     re.IGNORECASE,
 )
 SBER_CARD_PAYMENT_RE = re.compile(
-    rf"^Сч[её]т\s+карты\s+MIR-\d+\s+{TIME_RE}\s+Оплата\s+{MONEY_RE}"
+    rf"{SBER_CARD_OPERATION_PREFIX_RE}Оплата\s+{MONEY_RE}"
     rf"(?:\s+Комиссия\s+{FEE_RE})?(?:\s+{MERCHANT_RE})?{BALANCE_RE}$",
+    re.IGNORECASE,
+)
+SBER_PURCHASE_RE = re.compile(
+    rf"^(?P<instrument>Сч[её]т\s+карты\s+MIR-\d+|СЧ[ЕЁ]Т\d+)"
+    rf"(?:\s+\d{{2}}\.\d{{2}}\.\d{{2,4}})?\s+{TIME_RE}\s+"
+    rf"Покупка(?P<sbp>\s+по\s+СБП)?\s+{MONEY_RE}\s+{MERCHANT_RE}{BALANCE_RE}$",
     re.IGNORECASE,
 )
 SBER_INCOMING_SBP_RE = re.compile(
@@ -346,6 +355,19 @@ def _parse_sber(text: str, redacted_text: str, self_aliases: set[str]) -> Parsed
             merchant=merchant,
             source=TransactionSource.CARD,
             suggested_category_code=_suggest_category_code(merchant),
+            redacted_text=redacted_text,
+            operation_time=_parse_operation_time(match.group("time")),
+        )
+
+    if match := SBER_PURCHASE_RE.fullmatch(text):
+        return _expense_candidate(
+            bank=BankSmsBank.SBER,
+            amount_raw=match.group("amount"),
+            merchant=_clean_party(match.group("merchant")),
+            source=_sber_purchase_source(
+                instrument=match.group("instrument"),
+                is_sbp=bool(match.group("sbp")),
+            ),
             redacted_text=redacted_text,
             operation_time=_parse_operation_time(match.group("time")),
         )
@@ -605,6 +627,14 @@ def _suggest_category_code(merchant: str) -> str | None:
 
 def _vtb_payment_source(instrument: str) -> TransactionSource:
     if instrument.lower().startswith("карта"):
+        return TransactionSource.CARD
+    return TransactionSource.TRANSFER
+
+
+def _sber_purchase_source(*, instrument: str, is_sbp: bool) -> TransactionSource:
+    if is_sbp:
+        return TransactionSource.TRANSFER
+    if instrument.lower().startswith("счёт карты") or instrument.lower().startswith("счет карты"):
         return TransactionSource.CARD
     return TransactionSource.TRANSFER
 
