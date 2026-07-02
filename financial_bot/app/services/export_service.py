@@ -201,6 +201,7 @@ class ExportService:
             "category_title": category.title,
             "type": transaction.type,
             "source": transaction.source,
+            "scope": transaction.scope,
             "included_in_reports": transaction.included_in_reports,
             "comment": transaction.comment,
             "raw_text": transaction.raw_text,

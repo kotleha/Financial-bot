@@ -3,7 +3,7 @@ from financial_bot.app.domain.expense_input import (
     is_internal_transfer_tail,
     parse_free_text_expense,
 )
-from financial_bot.app.domain.types import TransactionSource, UserRole
+from financial_bot.app.domain.types import TransactionScope, TransactionSource, UserRole
 
 
 def test_parse_free_text_expense() -> None:
@@ -13,6 +13,7 @@ def test_parse_free_text_expense() -> None:
     assert parsed.tail == "продукты магнит"
     assert parsed.source == TransactionSource.UNKNOWN
     assert parsed.payer_role is None
+    assert parsed.scope == TransactionScope.HOUSEHOLD
 
 
 def test_parse_free_text_expense_with_source() -> None:
@@ -35,6 +36,15 @@ def test_parse_free_text_expense_with_explicit_payer() -> None:
 
     assert parsed.amount == 420000
     assert parsed.payer_role == UserRole.WIFE
+
+
+def test_parse_free_text_expense_with_scope_and_explicit_payer() -> None:
+    parsed = parse_free_text_expense("ж салон 4200 кафе")
+
+    assert parsed.amount == 420000
+    assert parsed.tail == "кафе"
+    assert parsed.payer_role == UserRole.WIFE
+    assert parsed.scope == TransactionScope.SALON
 
 
 def test_parse_free_text_expense_with_dot_cents() -> None:

@@ -12,6 +12,7 @@ from financial_bot.app.bot.formatters.bank_events import (
     format_bank_event_refund_corrected,
     format_bank_event_rejected,
     format_bank_event_rule_disabled,
+    format_bank_event_scope_updated,
     format_bank_import_result,
 )
 from financial_bot.app.bot.formatters.spending_limits import format_threshold_alert
@@ -30,7 +31,11 @@ from financial_bot.app.bot.session_safety import (
     rollback_after_secondary_failure,
 )
 from financial_bot.app.config import Settings
-from financial_bot.app.domain.types import BankEventOperationKind, BankEventParseStatus
+from financial_bot.app.domain.types import (
+    BankEventOperationKind,
+    BankEventParseStatus,
+    TransactionScope,
+)
 from financial_bot.app.services.bank_ingestion_service import BankIngestionService
 from financial_bot.app.services.spending_limit_service import SpendingLimitService
 from financial_bot.app.storage.repositories.user_repository import UserRepository
@@ -121,6 +126,37 @@ async def bank_event_action_selected(
 
     if callback_data.action == BankEventAction.CHANGE_CATEGORY:
         await _answer_category_selection(callback, service, event_id)
+        return
+
+    if callback_data.action in {
+        BankEventAction.SCOPE_HOUSEHOLD,
+        BankEventAction.SCOPE_SALON,
+    }:
+        scope = (
+            TransactionScope.SALON
+            if callback_data.action == BankEventAction.SCOPE_SALON
+            else TransactionScope.HOUSEHOLD
+        )
+        try:
+            result = await service.update_event_scope(
+                event_id=event_id,
+                scope=scope,
+                telegram_user_id=telegram_user_id,
+            )
+        except ValueError as exc:
+            await _clear_callback_keyboard(callback)
+            await callback.answer(str(exc), show_alert=True)
+            return
+
+        if not await _commit_or_answer_callback(callback, session):
+            return
+        await callback.answer("Контур обновлён")
+        if callback.message is not None:
+            await _replace_callback_message(
+                callback,
+                format_bank_event_scope_updated(result),
+                reply_markup=_bank_update_reply_markup(result),
+            )
         return
 
     if callback_data.action == BankEventAction.IGNORE:

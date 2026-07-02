@@ -1,7 +1,9 @@
 import re
 from dataclasses import dataclass
 
+from financial_bot.app.domain.accounting_scope import consume_leading_scope
 from financial_bot.app.domain.money import AMOUNT_VALUE_PATTERN, parse_amount_to_minor_units
+from financial_bot.app.domain.types import TransactionScope
 
 DEFAULT_INCOME_CATEGORY_CODE = "income_general"
 FALLBACK_INCOME_CATEGORY_CODE = "income_other"
@@ -38,10 +40,18 @@ class ParsedIncomeInput:
     amount: int
     category_code: str
     comment: str
+    scope: TransactionScope
 
 
 def parse_income_input(text: str) -> ParsedIncomeInput:
-    match = INCOME_INPUT_RE.fullmatch(text)
+    normalized_text = text.strip()
+    if normalized_text.startswith("+"):
+        normalized_text = normalized_text[1:].lstrip()
+
+    parsed_scope, normalized_text = consume_leading_scope(normalized_text)
+    scope = parsed_scope or TransactionScope.HOUSEHOLD
+
+    match = INCOME_INPUT_RE.fullmatch(normalized_text)
     if match is None:
         msg = "Invalid income input"
         raise ValueError(msg)
@@ -51,6 +61,7 @@ def parse_income_input(text: str) -> ParsedIncomeInput:
         amount=parse_amount_to_minor_units(match.group("amount")),
         category_code=_resolve_income_category_code(tail),
         comment=tail,
+        scope=scope,
     )
 
 

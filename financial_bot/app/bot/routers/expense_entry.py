@@ -36,18 +36,19 @@ from financial_bot.app.bot.session_safety import (
     rollback_after_secondary_failure,
 )
 from financial_bot.app.config import Settings
+from financial_bot.app.domain.accounting_scope import scope_label
 from financial_bot.app.domain.expense_input import (
-    AMOUNT_WITH_CATEGORY_NUMBER_RE,
     CATEGORY_NUMBER_ONLY_RE,
+    is_amount_draft_text,
+    parse_amount_draft,
     parse_amount_with_category_number,
     parse_category_number,
 )
 from financial_bot.app.domain.money import (
-    AMOUNT_ONLY_RE,
     format_money_minor,
     parse_amount_to_minor_units,
 )
-from financial_bot.app.domain.types import UserRole
+from financial_bot.app.domain.types import TransactionScope, UserRole
 from financial_bot.app.services.spending_limit_service import SpendingLimitService
 from financial_bot.app.services.transaction_service import (
     CategoryOption,
@@ -72,6 +73,8 @@ class ExpenseDraft:
     amount: int
     raw_text: str | None
     token: str
+    payer_role: str | None
+    scope: TransactionScope
 
 
 class ExpenseEntryState(StatesGroup):
@@ -114,6 +117,14 @@ def _is_cancel_text(text: str) -> bool:
     normalized = text.strip().lower()
     normalized = normalized.removeprefix("↩️").strip()
     return normalized in CANCEL_ALIASES
+
+
+def _is_amount_category_number_text(text: str) -> bool:
+    try:
+        parse_amount_with_category_number(text)
+    except ValueError:
+        return False
+    return True
 
 
 @router.message(TransactionEditState.waiting_for_amount, F.text)
@@ -389,6 +400,8 @@ async def category_number_entered_for_draft(
         category_sort_order=category_sort_order,
         payer_telegram_id=telegram_user_id,
         raw_text=draft.raw_text,
+        payer_role=draft.payer_role,
+        scope=draft.scope,
     )
     if not await _commit_or_answer_message(message, session):
         return
@@ -400,7 +413,7 @@ async def category_number_entered_for_draft(
     await _answer_threshold_alerts(message, session, settings, [summary.id])
 
 
-@router.message(F.text.regexp(AMOUNT_WITH_CATEGORY_NUMBER_RE))
+@router.message(F.text.func(lambda text: _is_amount_category_number_text(text)))
 async def amount_and_category_number_entered(
     message: Message,
     session: AsyncSession,
@@ -418,6 +431,8 @@ async def amount_and_category_number_entered(
         payer_telegram_id=telegram_user_id,
         raw_text=message.text,
         comment=parsed_input.comment or None,
+        payer_role=parsed_input.payer_role.value if parsed_input.payer_role is not None else None,
+        scope=parsed_input.scope,
     )
     if not await _commit_or_answer_message(message, session):
         return
@@ -433,7 +448,7 @@ async def category_number_without_draft(message: Message) -> None:
     await message.answer("Сначала введите сумму, например: 3500.")
 
 
-@router.message(F.text.regexp(AMOUNT_ONLY_RE))
+@router.message(F.text.func(lambda text: is_amount_draft_text(text)))
 async def amount_entered(
     message: Message,
     state: FSMContext,
@@ -443,7 +458,8 @@ async def amount_entered(
     if message.text is None:
         return
 
-    amount = parse_amount_to_minor_units(message.text)
+    parsed_amount = parse_amount_draft(message.text)
+    amount = parsed_amount.amount
     transaction_service = TransactionService(session, settings)
     categories = await transaction_service.list_category_options()
     if not categories:
@@ -457,12 +473,20 @@ async def amount_entered(
         raw_text=message.text,
         draft_token=draft_token,
         draft_created_at=_utc_timestamp(),
+        draft_payer_role=parsed_amount.payer_role.value
+        if parsed_amount.payer_role is not None
+        else None,
+        draft_scope=parsed_amount.scope.value,
     )
+    context_lines = [
+        format_money_minor(amount, settings.default_currency),
+        f"Контур: {scope_label(parsed_amount.scope)}",
+    ]
+    if parsed_amount.payer_role is not None:
+        context_lines.append(f"Плательщик: {_role_label(parsed_amount.payer_role.value)}")
+
     await message.answer(
-        (
-            f"{format_money_minor(amount, settings.default_currency)}\n\n"
-            "Выберите категорию. Черновик будет действовать 15 минут."
-        ),
+        "\n".join([*context_lines, "", "Выберите категорию. Черновик будет действовать 15 минут."]),
         reply_markup=build_category_keyboard(categories, draft_token=draft_token),
     )
 
@@ -507,6 +531,8 @@ async def category_selected(
         category_id=category_id,
         payer_telegram_id=telegram_user_id,
         raw_text=draft.raw_text,
+        payer_role=draft.payer_role,
+        scope=draft.scope,
     )
     if not await _commit_or_answer_callback(callback, session):
         return
@@ -753,6 +779,8 @@ async def _expense_draft_from_state(
     raw_text = state_data.get("raw_text")
     draft_token = state_data.get("draft_token")
     draft_created_at = state_data.get("draft_created_at")
+    draft_payer_role = state_data.get("draft_payer_role")
+    draft_scope = state_data.get("draft_scope")
 
     if (
         not isinstance(amount, int)
@@ -766,10 +794,18 @@ async def _expense_draft_from_state(
         await state.clear()
         return None
 
+    try:
+        scope = TransactionScope(draft_scope or TransactionScope.HOUSEHOLD.value)
+    except ValueError:
+        await state.clear()
+        return None
+
     return ExpenseDraft(
         amount=amount,
         raw_text=raw_text if isinstance(raw_text, str) else None,
         token=draft_token,
+        payer_role=draft_payer_role if isinstance(draft_payer_role, str) else None,
+        scope=scope,
     )
 
 
@@ -810,3 +846,11 @@ def _parse_payer_role(text: str) -> str:
         msg = "плательщик должен быть м или ж"
         raise ValueError(msg)
     return aliases[normalized]
+
+
+def _role_label(role: str) -> str:
+    labels = {
+        UserRole.HUSBAND.value: "Муж",
+        UserRole.WIFE.value: "Жена",
+    }
+    return labels.get(role, role)

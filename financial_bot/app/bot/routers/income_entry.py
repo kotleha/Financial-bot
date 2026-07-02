@@ -83,6 +83,7 @@ async def _create_income_from_payload(
             category_code=parsed.category_code,
             comment=parsed.comment or None,
             source=TransactionSource.UNKNOWN,
+            scope=parsed.scope,
         )
         await session.commit()
     except ValueError as exc:
@@ -100,6 +101,7 @@ async def _answer_income_help(message: Message) -> None:
     await message.answer(
         "Введите доход одной строкой:\n"
         "/income 100000 зарплата\n"
+        "/income салон 70000 бизнес\n"
         "доход 25000 аванс\n"
         "+15000 проект\n\n"
         "Категории: зарплата, аванс, премия/бонус, бизнес/проекты, возврат долга, прочий доход."

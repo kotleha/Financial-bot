@@ -158,8 +158,9 @@ async def test_limits_overview_shows_config_without_spending_totals(
     lines = {line.code: line for line in overview.lines}
 
     assert overview.period.label == "Июнь 2026"
-    assert len(overview.lines) == 17
+    assert len(overview.lines) == 18
     assert lines["utilities"].amount == 800_000
     assert lines["groceries"].amount == 7_000_000
     assert lines["investments_savings"].amount == 3_000_000
     assert lines["taxes"].amount is None
+    assert lines["stationery_supplies"].amount is None

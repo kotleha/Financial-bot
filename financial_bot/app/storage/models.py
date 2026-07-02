@@ -26,6 +26,7 @@ from financial_bot.app.domain.types import (
     BankEventParseStatus,
     BankEventSuggestionSource,
     CategoryOwnerRole,
+    TransactionScope,
     TransactionSource,
     TransactionType,
     UserRole,
@@ -169,9 +170,14 @@ class TransactionModel(Base):
             f"source in ({_sql_values(TransactionSource)})",
             name="transactions_source",
         ),
+        CheckConstraint(
+            f"scope in ({_sql_values(TransactionScope)})",
+            name="transactions_scope",
+        ),
         Index("ix_transactions_occurred_at", "occurred_at"),
         Index("ix_transactions_payer_user_id", "payer_user_id"),
         Index("ix_transactions_category_id", "category_id"),
+        Index("ix_transactions_scope", "scope"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -186,6 +192,12 @@ class TransactionModel(Base):
         nullable=False,
         default=TransactionSource.UNKNOWN.value,
         server_default=TransactionSource.UNKNOWN.value,
+    )
+    scope: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=TransactionScope.HOUSEHOLD.value,
+        server_default=TransactionScope.HOUSEHOLD.value,
     )
     comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     raw_text: Mapped[str | None] = mapped_column(String(2000), nullable=True)
@@ -422,6 +434,10 @@ class BankEventModel(Base):
             name="bank_events_source",
         ),
         CheckConstraint(
+            f"scope in ({_sql_values(TransactionScope)})",
+            name="bank_events_scope",
+        ),
+        CheckConstraint(
             "suggested_category_source is null or "
             f"suggested_category_source in ({_sql_values(BankEventSuggestionSource)})",
             name="bank_events_suggested_category_source",
@@ -436,6 +452,7 @@ class BankEventModel(Base):
         Index("ix_bank_events_received_at", "received_at"),
         Index("ix_bank_events_parse_status", "parse_status"),
         Index("ix_bank_events_transaction_id", "transaction_id"),
+        Index("ix_bank_events_scope", "scope"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -453,6 +470,12 @@ class BankEventModel(Base):
         nullable=False,
         default=TransactionSource.UNKNOWN.value,
         server_default=TransactionSource.UNKNOWN.value,
+    )
+    scope: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=TransactionScope.HOUSEHOLD.value,
+        server_default=TransactionScope.HOUSEHOLD.value,
     )
     currency: Mapped[str] = mapped_column(
         String(3),

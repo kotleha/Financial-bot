@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from financial_bot.app.domain.accounting_scope import scope_label
 from financial_bot.app.domain.money import format_money_minor
 from financial_bot.app.domain.types import UserRole
 from financial_bot.app.services.transaction_service import CreatedTransactionSummary
@@ -16,6 +17,7 @@ def format_transaction_created(summary: CreatedTransactionSummary) -> str:
             "Записал:",
             f"{format_money_minor(summary.amount, summary.currency)} — {summary.category_title}",
             f"Оплатил: {ROLE_LABELS.get(summary.payer_role, summary.payer_role)}",
+            f"Контур: {scope_label(summary.scope)}",
             f"Дата: {_format_date(summary.occurred_at)}",
         ]
     )
@@ -27,6 +29,7 @@ def format_income_created(summary: CreatedTransactionSummary) -> str:
             "Учёл доход:",
             f"{format_money_minor(summary.amount, summary.currency)} — {summary.category_title}",
             f"Получатель: {ROLE_LABELS.get(summary.payer_role, summary.payer_role)}",
+            f"Контур: {scope_label(summary.scope)}",
             f"Дата: {_format_date(summary.occurred_at)}",
         ]
     )
@@ -53,6 +56,7 @@ def _format_transaction_brief(summary: CreatedTransactionSummary) -> str:
         [
             f"{format_money_minor(summary.amount, summary.currency)} — {summary.category_title}",
             f"Оплатил: {ROLE_LABELS.get(summary.payer_role, summary.payer_role)}",
+            f"Контур: {scope_label(summary.scope)}",
             f"Дата: {_format_date(summary.occurred_at)}",
         ]
     )

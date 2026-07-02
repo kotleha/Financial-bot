@@ -5,6 +5,7 @@ from financial_bot.app.bot.formatters.context_hints import (
     LEARNING_RULE_MANAGEMENT_HINT,
     bank_suggestion_hint,
 )
+from financial_bot.app.domain.accounting_scope import scope_label
 from financial_bot.app.domain.money import format_money_minor
 from financial_bot.app.domain.types import (
     BankCategoryRuleMode,
@@ -61,6 +62,7 @@ def format_bank_import_result(result: BankImportResult) -> str:
 
     if result.amount is not None:
         lines.append(f"Сумма: {format_money_minor(result.amount, result.currency)}")
+    lines.append(f"Контур: {scope_label(result.scope)}")
     if result.fee_amount:
         lines.append(f"Комиссия: {format_money_minor(result.fee_amount, result.currency)}")
     if result.merchant:
@@ -124,6 +126,7 @@ def format_bank_event_confirmed(result: BankEventConfirmationResult) -> str:
             f"{format_money_minor(result.transaction.amount, result.transaction.currency)} — "
             f"{result.transaction.category_title}"
         ),
+        f"Контур: {scope_label(result.transaction.scope)}",
         "Статус: подтверждено",
     ]
     if result.learning_rule is not None:
@@ -144,6 +147,7 @@ def format_bank_event_refund_corrected(result: BankEventConfirmationResult) -> s
                 f"-{format_money_minor(result.transaction.amount, result.transaction.currency)} — "
                 f"{result.transaction.category_title}"
             ),
+            f"Контур: {scope_label(result.transaction.scope)}",
             "Статус: подтверждено",
         ]
     )
@@ -162,6 +166,7 @@ def format_bank_event_income_confirmed(result: BankEventConfirmationResult) -> s
                 f"+{format_money_minor(result.transaction.amount, result.transaction.currency)} — "
                 f"{result.transaction.category_title}"
             ),
+            f"Контур: {scope_label(result.transaction.scope)}",
             INCOME_REPORT_HINT,
         ]
     )
@@ -176,6 +181,7 @@ def format_bank_event_autosaved(result: BankImportResult) -> str:
     lines = [
         "✅ Записал автоматически:",
         amount_line,
+        f"Контур: {scope_label(result.scope)}",
         "Основание: похожего продавца уже подтверждали в этой категории.",
         AUTOSAVE_ACTION_HINT,
     ]
@@ -185,7 +191,13 @@ def format_bank_event_autosaved(result: BankImportResult) -> str:
 
 
 def format_bank_event_rejected(result: BankEventUpdateResult) -> str:
-    return "\n".join(["🚫 Не учитываю:", _event_update_amount_line(result)])
+    return "\n".join(
+        [
+            "🚫 Не учитываю:",
+            _event_update_amount_line(result),
+            f"Контур: {scope_label(result.scope)}",
+        ]
+    )
 
 
 def format_bank_event_internal_transfer(result: BankEventUpdateResult) -> str:
@@ -193,6 +205,7 @@ def format_bank_event_internal_transfer(result: BankEventUpdateResult) -> str:
         [
             "🔁 Перевод себе:",
             _event_update_amount_line(result),
+            f"Контур: {scope_label(result.scope)}",
             INTERNAL_TRANSFER_HINT,
         ]
     )
@@ -214,7 +227,18 @@ def format_bank_event_category_updated(result: BankEventUpdateResult) -> str:
                 currency=result.currency,
                 category_title=category,
             ),
+            f"Контур: {scope_label(result.scope)}",
             next_step,
+        ]
+    )
+
+
+def format_bank_event_scope_updated(result: BankEventUpdateResult) -> str:
+    return "\n".join(
+        [
+            "Контур обновлён:",
+            _event_update_amount_line(result),
+            f"Контур: {scope_label(result.scope)}",
         ]
     )
 
@@ -224,6 +248,7 @@ def format_bank_event_rule_disabled(result: BankEventUpdateResult) -> str:
         [
             "🚫 Правило автоучёта отключено:",
             _event_update_amount_line(result),
+            f"Контур: {scope_label(result.scope)}",
             "Записанный расход не изменил.",
         ]
     )

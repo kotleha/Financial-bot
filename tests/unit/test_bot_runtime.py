@@ -345,6 +345,8 @@ def test_bank_event_keyboards_pack_callback_data() -> None:
     assert refund_callback.event_id == 46
     assert refund_callback.action == BankEventAction.REFUND_CORRECTION
     assert "↩️ Учесть возврат" in refund_texts
+    assert "🏠 Дом" in refund_texts
+    assert "💼 Салон" in refund_texts
     assert "🏷 Изменить категорию" not in refund_texts
     assert "🔁 Это перевод себе" not in refund_texts
 
@@ -356,6 +358,8 @@ def test_bank_event_keyboards_pack_callback_data() -> None:
     assert income_callback.event_id == 45
     assert income_callback.action == BankEventAction.INCOME_CONFIRM
     assert "✅ Учесть доход" in income_texts
+    assert "🏠 Дом" in income_texts
+    assert "💼 Салон" in income_texts
     assert "🏷 Изменить категорию" not in income_texts
 
     autosaved_keyboard = build_bank_autosaved_actions_keyboard(47)
@@ -370,10 +374,14 @@ def test_bank_event_keyboards_pack_callback_data() -> None:
         BankEventAction.INTERNAL_TRANSFER,
         BankEventAction.IGNORE,
         BankEventAction.DISABLE_RULE,
+        BankEventAction.SCOPE_HOUSEHOLD,
+        BankEventAction.SCOPE_SALON,
     }
     assert {callback.event_id for callback in autosaved_callbacks} == {47}
     assert "✅ Подтвердить" not in autosaved_texts
     assert "🗑 Удалить автозапись" in autosaved_texts
+    assert "🏠 Дом" in autosaved_texts
+    assert "💼 Салон" in autosaved_texts
 
 
 def test_bank_learning_keyboards_pack_callback_data() -> None:

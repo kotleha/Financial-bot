@@ -15,6 +15,7 @@ from financial_bot.app.domain.types import (
     BankEventOperationKind,
     BankEventParseStatus,
     BankEventSuggestionSource,
+    TransactionScope,
     TransactionSource,
 )
 from financial_bot.app.services.bank_learning_service import (
@@ -67,6 +68,7 @@ class BankImportResult:
     telegram_notification_sent_at: datetime | None = None
     telegram_notification_failed_at: datetime | None = None
     suggestion_conflict: bool = False
+    scope: TransactionScope = TransactionScope.HOUSEHOLD
 
     @property
     def creates_expense_candidate(self) -> bool:
@@ -85,6 +87,7 @@ class BankEventUpdateResult:
     suggested_category_code: str | None
     suggested_category_title: str | None
     suggested_category_source: BankEventSuggestionSource
+    scope: TransactionScope = TransactionScope.HOUSEHOLD
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +211,7 @@ class BankIngestionService:
             raw_text=f"bank_event:{event.id}",
             comment=_event_comment(event),
             source=_event_transaction_source(event),
+            scope=TransactionScope(event.scope),
             occurred_at=event.occurred_at,
         )
         linked = await self._bank_events.try_link_transaction(
@@ -281,6 +285,7 @@ class BankIngestionService:
             raw_text=f"bank_refund_event:{event.id}",
             comment=_event_comment(event),
             source=_event_transaction_source(event),
+            scope=TransactionScope(event.scope),
             occurred_at=event.occurred_at,
         )
         linked = await self._bank_events.try_link_transaction(
@@ -330,6 +335,7 @@ class BankIngestionService:
             raw_text=f"bank_income_event:{event.id}",
             comment=_event_comment(event),
             source=_event_transaction_source(event),
+            scope=TransactionScope(event.scope),
             occurred_at=event.occurred_at,
         )
         linked = await self._bank_events.try_link_transaction(
@@ -458,6 +464,42 @@ class BankIngestionService:
                 "parse_status": next_status.value,
             },
             allowed_statuses=(BankEventParseStatus(event.parse_status),),
+        )
+        if not updated:
+            await self._raise_event_changed_or_linked(event)
+        await self._session.refresh(event)
+        return await self._event_update_result(event)
+
+    async def update_event_scope(
+        self,
+        *,
+        event_id: int,
+        scope: TransactionScope,
+        telegram_user_id: int,
+    ) -> BankEventUpdateResult:
+        event = await self._resolve_owned_event(event_id, telegram_user_id)
+        _ensure_event_is_actionable(event)
+
+        if _is_autosaved_linked_event(event):
+            transaction = await self._active_autosaved_transaction(event)
+            if transaction.scope != scope.value:
+                await self._transactions.update_transaction(
+                    transaction_id=transaction.id,
+                    changed_by_telegram_id=telegram_user_id,
+                    scope=scope,
+                )
+            event.scope = scope.value
+            await self._session.flush()
+            return await self._event_update_result(event)
+
+        _ensure_not_linked(event)
+        updated = await self._bank_events.try_update_unlinked_event(
+            event_id=event.id,
+            values={"scope": scope.value},
+            allowed_statuses=(
+                BankEventParseStatus.NEEDS_CONFIRMATION,
+                BankEventParseStatus.PARSED,
+            ),
         )
         if not updated:
             await self._raise_event_changed_or_linked(event)
@@ -804,6 +846,7 @@ class BankIngestionService:
                 amount=parsed.amount,
                 fee_amount=parsed.fee_amount,
                 source=parsed.source.value,
+                scope=TransactionScope.HOUSEHOLD.value,
                 currency=parsed.currency,
                 merchant=_stored_merchant(parsed),
                 counterparty=_stored_counterparty(parsed),
@@ -877,6 +920,7 @@ class BankIngestionService:
             raw_text=f"bank_event_autosaved:{event.id}",
             comment=_event_comment(event),
             source=_event_transaction_source(event),
+            scope=TransactionScope(event.scope),
             occurred_at=event.occurred_at,
         )
         linked = await self._bank_events.try_link_transaction(
@@ -930,6 +974,7 @@ class BankIngestionService:
             suggested_category_code=category.code if category is not None else None,
             suggested_category_title=category.title if category is not None else None,
             suggested_category_source=_event_suggestion_source(event),
+            scope=TransactionScope(event.scope),
         )
 
     async def _resolve_category_suggestion(
@@ -1167,6 +1212,7 @@ def _result_from_parsed(
         telegram_notification_sent_at=event.telegram_notification_sent_at,
         telegram_notification_failed_at=event.telegram_notification_failed_at,
         suggestion_conflict=suggestion_conflict,
+        scope=TransactionScope(event.scope),
     )
 
 
@@ -1198,6 +1244,7 @@ def _result_from_event(
         telegram_notification_sent_at=event.telegram_notification_sent_at,
         telegram_notification_failed_at=event.telegram_notification_failed_at,
         suggestion_conflict=event.suggestion_conflict,
+        scope=TransactionScope(event.scope),
     )
 
 

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from financial_bot.app.domain.categories import VISIBLE_EXPENSE_SORT_ORDER_MAX
 from financial_bot.app.storage.models import CategoryAliasModel, CategoryModel
 from financial_bot.app.storage.repositories.category_repository import CategoryRepository
 
@@ -189,4 +190,8 @@ def validate_category_alias(alias: str) -> None:
 
 
 def _is_editable_expense_category(category: CategoryModel) -> bool:
-    return category.is_active and category.is_expense and category.sort_order <= 17
+    return (
+        category.is_active
+        and category.is_expense
+        and category.sort_order <= VISIBLE_EXPENSE_SORT_ORDER_MAX
+    )

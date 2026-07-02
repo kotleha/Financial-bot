@@ -202,6 +202,7 @@ async def test_bank_ingestion_endpoint_stores_redacted_event_and_deduplicates(
     assert first_body["operation_kind"] == "expense_candidate"
     assert first_body["parse_status"] == "needs_confirmation"
     assert first_body["amount_minor"] == 29_000
+    assert first_body["scope"] == "household"
     assert first_body["suggested_category_code"] == "cosmetology_medicine"
     assert first_body["suggested_category_source"] == "parser_hint"
     assert first_body["telegram_notification_sent"] is True
@@ -217,6 +218,7 @@ async def test_bank_ingestion_endpoint_stores_redacted_event_and_deduplicates(
     assert len(events) == 1
     event = events[0]
     assert event.channel == BankEventChannel.IOS_SHORTCUT.value
+    assert event.scope == "household"
     assert event.redacted_text
     assert "MIR-1111" not in event.redacted_text
     assert "924.14" not in event.redacted_text
@@ -587,6 +589,7 @@ async def test_bank_ingestion_endpoint_autosaves_learned_expense_and_notifies(
     body = response.json()
     assert body["operation_kind"] == "expense_candidate"
     assert body["parse_status"] == "autosaved"
+    assert body["scope"] == "household"
     assert body["requires_confirmation"] is False
     assert body["suggested_category_code"] == "groceries"
     assert body["suggested_category_source"] == "learned_rule"
@@ -601,6 +604,7 @@ async def test_bank_ingestion_endpoint_autosaves_learned_expense_and_notifies(
     assert event.transaction_id == transaction.id
     assert transaction.type == TransactionType.EXPENSE.value
     assert transaction.amount == 29_000
+    assert transaction.scope == "household"
     assert transaction.raw_text == f"bank_event_autosaved:{event.id}"
     assert event.telegram_notification_sent_at is not None
     assert event.telegram_notification_attempts == 1

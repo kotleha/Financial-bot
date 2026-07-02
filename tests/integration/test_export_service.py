@@ -70,6 +70,8 @@ async def test_csv_export_contains_only_report_transactions(
         assert len(dataframe) == len(MAY_2026_TRANSACTION_ROWS)
         assert "internal_transfer" not in set(dataframe["category_code"])
         assert "category_owner_role" not in dataframe.columns
+        assert "scope" in dataframe.columns
+        assert set(dataframe["scope"]) == {"household"}
         assert dataframe["amount_rub"].sum() == EXPECTED_MAY_REPORT_RUB["total"]
         assert dataframe["report_amount_rub"].sum() == EXPECTED_MAY_REPORT_RUB["total"]
     finally:
@@ -111,6 +113,8 @@ async def test_xlsx_export_contains_required_sheets(
         cashflow = pd.read_excel(workbook, sheet_name="cashflow")
         assert len(transactions) == len(MAY_2026_TRANSACTION_ROWS)
         assert "report_amount_rub" in transactions.columns
+        assert "scope" in transactions.columns
+        assert set(transactions["scope"]) == {"household"}
         assert "category_owner_role" not in transactions.columns
         assert "owner_role" not in by_category.columns
         assert set(by_payer["payer_role"]) == {"husband", "wife"}
@@ -174,9 +178,12 @@ async def test_export_includes_corrections_with_signed_report_amount(
     assert set(rows_by_type) == {"expense", "correction"}
     assert rows_by_type["expense"]["amount_rub"] == 1000
     assert rows_by_type["expense"]["report_amount_rub"] == 1000
+    assert rows_by_type["expense"]["scope"] == "household"
     assert rows_by_type["correction"]["amount_rub"] == 300
     assert rows_by_type["correction"]["report_amount_rub"] == -300
+    assert rows_by_type["correction"]["scope"] == "household"
     assert income_rows["income_general"]["amount_rub"] == 100_000
+    assert income_rows["income_general"]["scope"] == "household"
     assert tables.by_income_category == [
         {
             "category_code": "income_general",

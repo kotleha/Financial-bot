@@ -102,6 +102,9 @@ async def test_google_sheets_export_appends_required_tables(
     assert first_call["valueInputOption"] == "USER_ENTERED"
     assert first_call["insertDataOption"] == "INSERT_ROWS"
     assert first_call["body"]["values"][0][0] == "id"
+    assert "scope" in first_call["body"]["values"][0]
+    scope_index = first_call["body"]["values"][0].index("scope")
+    assert first_call["body"]["values"][1][scope_index] == "household"
     assert len(first_call["body"]["values"]) == len(MAY_2026_TRANSACTION_ROWS) + 1
 
 

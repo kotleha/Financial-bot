@@ -1,10 +1,11 @@
 import re
 from dataclasses import dataclass
 
+from financial_bot.app.domain.accounting_scope import consume_leading_scope
 from financial_bot.app.domain.money import AMOUNT_VALUE_PATTERN, parse_amount_to_minor_units
-from financial_bot.app.domain.types import TransactionSource, UserRole
+from financial_bot.app.domain.types import TransactionScope, TransactionSource, UserRole
 
-CATEGORY_NUMBER_PATTERN = r"(?:[1-9]|1[0-7]|99)"
+CATEGORY_NUMBER_PATTERN = r"(?:[1-9]|1[0-8]|99)"
 CATEGORY_NUMBER_ONLY_RE = re.compile(rf"^\s*(?P<category>{CATEGORY_NUMBER_PATTERN})\s*$")
 AMOUNT_WITH_CATEGORY_NUMBER_RE = re.compile(
     rf"^\s*(?P<amount>{AMOUNT_VALUE_PATTERN})(?:\s*(?:₽|руб\.?|р\.?))?\s+"
@@ -12,8 +13,7 @@ AMOUNT_WITH_CATEGORY_NUMBER_RE = re.compile(
     re.IGNORECASE,
 )
 FREE_TEXT_EXPENSE_RE = re.compile(
-    r"^\s*(?:(?P<payer>м|муж|ж|жена)\s+)?"
-    rf"(?P<amount>{AMOUNT_VALUE_PATTERN})(?:\s*(?:₽|руб\.?|р\.?))?"
+    rf"^\s*(?P<amount>{AMOUNT_VALUE_PATTERN})(?:\s*(?:₽|руб\.?|р\.?))?"
     r"(?:\s+(?P<tail>.+))?\s*$",
     re.IGNORECASE,
 )
@@ -86,6 +86,15 @@ class ParsedAmountCategoryNumber:
     amount: int
     category_sort_order: int
     comment: str = ""
+    payer_role: UserRole | None = None
+    scope: TransactionScope = TransactionScope.HOUSEHOLD
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedAmountDraft:
+    amount: int
+    payer_role: UserRole | None = None
+    scope: TransactionScope = TransactionScope.HOUSEHOLD
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +103,7 @@ class ParsedFreeTextExpense:
     tail: str
     source: TransactionSource
     payer_role: UserRole | None
+    scope: TransactionScope
 
 
 def is_category_number_only(text: str) -> bool:
@@ -109,7 +119,8 @@ def parse_category_number(text: str) -> int:
 
 
 def parse_amount_with_category_number(text: str) -> ParsedAmountCategoryNumber:
-    match = AMOUNT_WITH_CATEGORY_NUMBER_RE.fullmatch(text)
+    qualifiers = _consume_leading_qualifiers(text)
+    match = AMOUNT_WITH_CATEGORY_NUMBER_RE.fullmatch(qualifiers.text)
     if match is None:
         msg = f"Invalid amount/category input: {text!r}"
         raise ValueError(msg)
@@ -117,24 +128,43 @@ def parse_amount_with_category_number(text: str) -> ParsedAmountCategoryNumber:
         amount=parse_amount_to_minor_units(match.group("amount")),
         category_sort_order=int(match.group("category")),
         comment=(match.group("comment") or "").strip(),
+        payer_role=qualifiers.payer_role,
+        scope=qualifiers.scope,
     )
 
 
+def parse_amount_draft(text: str) -> ParsedAmountDraft:
+    qualifiers = _consume_leading_qualifiers(text)
+    return ParsedAmountDraft(
+        amount=parse_amount_to_minor_units(qualifiers.text),
+        payer_role=qualifiers.payer_role,
+        scope=qualifiers.scope,
+    )
+
+
+def is_amount_draft_text(text: str) -> bool:
+    try:
+        parse_amount_draft(text)
+    except ValueError:
+        return False
+    return True
+
+
 def parse_free_text_expense(text: str) -> ParsedFreeTextExpense:
-    match = FREE_TEXT_EXPENSE_RE.fullmatch(text)
+    qualifiers = _consume_leading_qualifiers(text)
+    match = FREE_TEXT_EXPENSE_RE.fullmatch(qualifiers.text)
     if match is None:
         msg = "Invalid free-text expense input"
         raise ValueError(msg)
 
     tail = (match.group("tail") or "").strip()
-    payer_raw = match.group("payer")
-    payer_role = PAYER_ALIASES.get(payer_raw.lower()) if payer_raw else None
 
     return ParsedFreeTextExpense(
         amount=parse_amount_to_minor_units(match.group("amount")),
         tail=tail,
         source=_detect_source(tail),
-        payer_role=payer_role,
+        payer_role=qualifiers.payer_role,
+        scope=qualifiers.scope,
     )
 
 
@@ -184,3 +214,40 @@ def _contains_token_phrase(text_tokens: tuple[str, ...], alias_tokens: tuple[str
         text_tokens[index : index + alias_length] == alias_tokens
         for index in range(len(text_tokens) - alias_length + 1)
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _LeadingQualifiers:
+    text: str
+    payer_role: UserRole | None
+    scope: TransactionScope
+
+
+def _consume_leading_qualifiers(text: str) -> _LeadingQualifiers:
+    rest = text.strip()
+    payer_role: UserRole | None = None
+    scope = TransactionScope.HOUSEHOLD
+    scope_was_set = False
+
+    for _ in range(2):
+        token_match = WORD_RE.match(rest)
+        if token_match is None:
+            break
+
+        token = token_match.group(0).lower().replace("ё", "е")
+        if payer_role is None and token in PAYER_ALIASES:
+            payer_role = PAYER_ALIASES[token]
+            rest = rest[token_match.end() :].lstrip()
+            continue
+
+        if not scope_was_set:
+            parsed_scope, next_rest = consume_leading_scope(rest)
+            if parsed_scope is not None and next_rest != rest:
+                scope = parsed_scope
+                scope_was_set = True
+                rest = next_rest
+                continue
+
+        break
+
+    return _LeadingQualifiers(text=rest, payer_role=payer_role, scope=scope)

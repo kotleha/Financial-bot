@@ -235,12 +235,18 @@ expense totals for reports, budgets, charts, and exports without rewriting the o
 Bank SMS parsers currently cover Sber/`900`, VTB, and T-Bank. Keep separate source tokens and
 iPhone automations per bank and owner.
 
+Expenses can optionally carry an accounting scope. By default every operation is `Дом`. Prefix
+manual input with `салон` when the expense or income belongs to salon/business accounting:
+`салон 3500 18 бумага`, `салон 900 такси`, `/income салон 70000 услуги`. Categories still answer
+"what was it?", while the scope answers "for which activity?". Bank event cards also have
+`Дом`/`Салон` buttons before or after autosave.
+
 Current categories:
 
 1. ЖКХ
 2. Продукты
 3. Подписки/Связь/Интернет
-4. Авто (бензин, базовое ТО)
+4. Авто/Транспорт/Такси
 5. Питомцы
 6. Рестораны/Кафе
 7. Дети (Образование/Спорт)
@@ -254,6 +260,7 @@ Current categories:
 15. Инвестиции/Накопления
 16. Помощь/Резерв
 17. Налоги
+18. Канцелярия/Расходники
 
 `internal_transfer` is a hidden service category for inputs such as `сам себе`; it is not
 shown in the category keyboard and is excluded from reports.
@@ -266,6 +273,8 @@ Current expense-entry commands:
 - `/income 100000 зарплата`, `доход 25000 аванс`, or `+15000 проект` creates a manual
   income operation. Supported income sources are salary, advance, bonus, business/projects,
   debt return, and other income.
+- `салон 3500 канцелярия`, `дом 900 такси`, or `ж салон 4200 кафе` creates scoped expenses.
+  Scope is optional; omitted scope means `Дом`.
 - `/bank <sms text>` parses and stores a redacted bank SMS event for manual testing. Expense
   candidates can then be confirmed with inline buttons, assigned to another category, ignored,
   or marked as an internal transfer.

@@ -6,6 +6,7 @@ from financial_bot.app.domain.types import (
     BankEventParseStatus,
     BankEventSuggestionSource,
     CategoryOwnerRole,
+    TransactionScope,
     TransactionSource,
     TransactionType,
     UserRole,
@@ -47,6 +48,7 @@ def test_transaction_table_has_financial_and_soft_delete_columns() -> None:
 
     assert transactions.c.amount.type.python_type is int
     assert transactions.c.currency.type.length == 3
+    assert "scope" in transactions.c
     assert "included_in_reports" in transactions.c
     assert "deleted_at" in transactions.c
 
@@ -62,6 +64,7 @@ def test_transaction_table_has_expected_check_constraints() -> None:
     assert "ck_transactions_transactions_amount_positive" in check_constraint_names
     assert "ck_transactions_transactions_type" in check_constraint_names
     assert "ck_transactions_transactions_source" in check_constraint_names
+    assert "ck_transactions_transactions_scope" in check_constraint_names
 
 
 def test_domain_enum_values_match_database_contract() -> None:
@@ -79,6 +82,7 @@ def test_domain_enum_values_match_database_contract() -> None:
         "transfer",
         "unknown",
     }
+    assert {item.value for item in TransactionScope} == {"household", "salon"}
     assert {item.value for item in BankEventBank} == {"vtb", "sber", "tbank", "unknown"}
     assert {item.value for item in BankEventChannel} == {
         "ios_shortcut",
@@ -155,11 +159,13 @@ def test_bank_event_tables_have_expected_constraints() -> None:
     assert ("code",) in source_unique_columns
     assert ("token_hash",) in source_unique_columns
     assert "suggestion_conflict" in bank_events.c
+    assert "scope" in bank_events.c
     assert ("dedupe_key",) in event_unique_columns
     assert ("owner_user_id", "bank", "merchant_key") in rule_unique_columns
     assert "ck_bank_events_bank_events_operation_kind" in event_check_constraint_names
     assert "ck_bank_events_bank_events_parse_status" in event_check_constraint_names
     assert "ck_bank_events_bank_events_source" in event_check_constraint_names
+    assert "ck_bank_events_bank_events_scope" in event_check_constraint_names
     assert "ck_bank_events_bank_events_suggested_category_source" in event_check_constraint_names
     assert "ck_bank_category_rules_bank_category_rules_mode" in rule_check_constraint_names
 

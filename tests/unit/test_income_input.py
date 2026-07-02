@@ -1,5 +1,6 @@
 import pytest
 from financial_bot.app.domain.income_input import parse_income_input
+from financial_bot.app.domain.types import TransactionScope
 
 
 @pytest.mark.parametrize(
@@ -20,6 +21,16 @@ def test_parse_income_input(text: str, amount: int, category_code: str, comment:
     assert parsed.amount == amount
     assert parsed.category_code == category_code
     assert parsed.comment == comment
+    assert parsed.scope == TransactionScope.HOUSEHOLD
+
+
+def test_parse_income_input_with_scope() -> None:
+    parsed = parse_income_input("+салон 70000 бизнес")
+
+    assert parsed.amount == 7_000_000
+    assert parsed.category_code == "income_business"
+    assert parsed.comment == "бизнес"
+    assert parsed.scope == TransactionScope.SALON
 
 
 def test_parse_income_input_rejects_text_without_amount() -> None:

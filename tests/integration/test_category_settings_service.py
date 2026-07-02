@@ -50,7 +50,7 @@ async def test_category_settings_lists_active_expense_categories(
         lines = await CategorySettingsService(session).list_categories()
         groceries = next(line for line in lines if line.code == "groceries")
 
-        assert len(lines) == 17
+        assert len(lines) == 18
         assert groceries.title == "Продукты"
         assert groceries.sort_order == 2
         assert groceries.alias_count > 0

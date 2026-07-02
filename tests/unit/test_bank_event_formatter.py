@@ -6,6 +6,7 @@ from financial_bot.app.bot.formatters.bank_events import (
     format_bank_event_income_confirmed,
     format_bank_event_refund_corrected,
     format_bank_event_rule_disabled,
+    format_bank_event_scope_updated,
     format_bank_import_result,
 )
 from financial_bot.app.domain.types import (
@@ -14,6 +15,7 @@ from financial_bot.app.domain.types import (
     BankEventOperationKind,
     BankEventParseStatus,
     BankEventSuggestionSource,
+    TransactionScope,
 )
 from financial_bot.app.services.bank_ingestion_service import (
     BankEventConfirmationResult,
@@ -399,6 +401,28 @@ def test_format_bank_event_rule_disabled_keeps_existing_expense() -> None:
     assert "🚫 Правило автоучёта отключено:" in text
     assert "150 ₽ — Продукты" in text
     assert "Записанный расход не изменил." in text
+
+
+def test_format_bank_event_scope_updated() -> None:
+    text = format_bank_event_scope_updated(
+        BankEventUpdateResult(
+            event_id=47,
+            operation_kind=BankEventOperationKind.EXPENSE_CANDIDATE,
+            parse_status=BankEventParseStatus.NEEDS_CONFIRMATION,
+            amount=15_000,
+            currency="RUB",
+            merchant="UNKNOWN SHOP",
+            counterparty="",
+            suggested_category_code="groceries",
+            suggested_category_title="Продукты",
+            suggested_category_source=BankEventSuggestionSource.LEARNED_RULE,
+            scope=TransactionScope.SALON,
+        )
+    )
+
+    assert "Контур обновлён:" in text
+    assert "150 ₽ — Продукты" in text
+    assert "Контур: Салон" in text
 
 
 def _created_transaction_summary(category_title: str = "Продукты") -> CreatedTransactionSummary:

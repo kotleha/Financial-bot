@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from financial_bot.app.domain.categories import VISIBLE_EXPENSE_SORT_ORDER_MAX
 from financial_bot.app.domain.types import BankCategoryRuleMode
 from financial_bot.app.services.transaction_service import CategoryOption
 from financial_bot.app.storage.models import BankCategoryRuleModel, CategoryModel
@@ -102,7 +103,7 @@ class BankLearningRuleService:
                 is_expense=category.is_expense,
             )
             for category in categories
-            if category.is_expense and category.sort_order <= 17
+            if category.is_expense and category.sort_order <= VISIBLE_EXPENSE_SORT_ORDER_MAX
         )
 
     async def update_rule_category(
@@ -117,7 +118,7 @@ class BankLearningRuleService:
         new_category = await self._categories.get(category_id)
         if new_category is None or not new_category.is_active or not new_category.is_expense:
             raise ValueError("Категория недоступна для банковского правила.")
-        if new_category.sort_order > 17:
+        if new_category.sort_order > VISIBLE_EXPENSE_SORT_ORDER_MAX:
             raise ValueError("Служебную категорию нельзя назначить банковскому правилу.")
 
         old_title = _category_title(old_category)

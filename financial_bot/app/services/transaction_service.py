@@ -6,13 +6,18 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_bot.app.config import Settings
+from financial_bot.app.domain.categories import VISIBLE_EXPENSE_SORT_ORDER_MAX
 from financial_bot.app.domain.expense_input import (
-    AMOUNT_WITH_CATEGORY_NUMBER_RE,
     is_internal_transfer_tail,
     parse_amount_with_category_number,
     parse_free_text_expense,
 )
-from financial_bot.app.domain.types import AuditAction, TransactionSource, TransactionType
+from financial_bot.app.domain.types import (
+    AuditAction,
+    TransactionScope,
+    TransactionSource,
+    TransactionType,
+)
 from financial_bot.app.services.alias_service import AliasService
 from financial_bot.app.storage.models import (
     CategoryModel,
@@ -48,6 +53,7 @@ class CreatedTransactionSummary:
     payer_role: str
     occurred_at: datetime
     included_in_reports: bool
+    scope: str = TransactionScope.HOUSEHOLD.value
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +87,7 @@ class TransactionService:
         return [
             _to_category_option(category)
             for category in categories
-            if category.is_expense and category.sort_order <= 17
+            if category.is_expense and category.sort_order <= VISIBLE_EXPENSE_SORT_ORDER_MAX
         ]
 
     async def list_income_category_options(self) -> list[CategoryOption]:
@@ -126,6 +132,7 @@ class TransactionService:
             raw_text=text,
             source=parsed.source,
             comment=parsed.tail or None,
+            scope=parsed.scope,
         )
 
     async def create_batch_from_text(
@@ -140,19 +147,24 @@ class TransactionService:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         for index, line in enumerate(lines, start=1):
             try:
-                if AMOUNT_WITH_CATEGORY_NUMBER_RE.fullmatch(line):
+                try:
                     parsed = parse_amount_with_category_number(line)
+                except ValueError:
+                    summary = await self.create_from_free_text(
+                        text=line,
+                        current_payer_telegram_id=current_payer_telegram_id,
+                    )
+                else:
                     summary = await self.create_from_category_sort_order(
                         amount=parsed.amount,
                         category_sort_order=parsed.category_sort_order,
                         payer_telegram_id=current_payer_telegram_id,
                         raw_text=line,
                         comment=parsed.comment or None,
-                    )
-                else:
-                    summary = await self.create_from_free_text(
-                        text=line,
-                        current_payer_telegram_id=current_payer_telegram_id,
+                        payer_role=parsed.payer_role.value
+                        if parsed.payer_role is not None
+                        else None,
+                        scope=parsed.scope,
                     )
                 created.append(summary)
             except ValueError as exc:
@@ -186,12 +198,14 @@ class TransactionService:
         raw_text: str | None,
         comment: str | None = None,
         source: TransactionSource = TransactionSource.UNKNOWN,
+        scope: TransactionScope = TransactionScope.HOUSEHOLD,
         occurred_at: datetime | None = None,
+        payer_role: str | None = None,
     ) -> CreatedTransactionSummary:
         creator = await self._resolve_current_user(payer_telegram_id)
         payer = await self._resolve_payer(
             current_payer_telegram_id=payer_telegram_id,
-            explicit_payer_role=None,
+            explicit_payer_role=payer_role,
         )
 
         category = await self._categories.get(category_id)
@@ -211,6 +225,7 @@ class TransactionService:
             raw_text=raw_text,
             source=source,
             comment=comment,
+            scope=scope,
             occurred_at=occurred_at,
         )
 
@@ -223,6 +238,7 @@ class TransactionService:
         raw_text: str | None,
         comment: str | None = None,
         source: TransactionSource = TransactionSource.UNKNOWN,
+        scope: TransactionScope = TransactionScope.HOUSEHOLD,
         occurred_at: datetime | None = None,
     ) -> CreatedTransactionSummary:
         creator = await self._resolve_current_user(payer_telegram_id)
@@ -248,6 +264,7 @@ class TransactionService:
             raw_text=raw_text,
             source=source,
             comment=comment,
+            scope=scope,
             occurred_at=occurred_at,
             transaction_type=TransactionType.CORRECTION,
         )
@@ -261,6 +278,7 @@ class TransactionService:
         category_code: str = "income_general",
         comment: str | None = None,
         source: TransactionSource = TransactionSource.UNKNOWN,
+        scope: TransactionScope = TransactionScope.HOUSEHOLD,
         occurred_at: datetime | None = None,
     ) -> CreatedTransactionSummary:
         creator = await self._resolve_current_user(recipient_telegram_id)
@@ -279,6 +297,7 @@ class TransactionService:
             raw_text=raw_text,
             source=source,
             comment=comment,
+            scope=scope,
             occurred_at=occurred_at,
             transaction_type=TransactionType.INCOME,
         )
@@ -291,6 +310,8 @@ class TransactionService:
         payer_telegram_id: int,
         raw_text: str | None,
         comment: str | None = None,
+        payer_role: str | None = None,
+        scope: TransactionScope = TransactionScope.HOUSEHOLD,
     ) -> CreatedTransactionSummary:
         category = await self._categories.get_by_sort_order(category_sort_order)
         if category is None:
@@ -302,6 +323,8 @@ class TransactionService:
             payer_telegram_id=payer_telegram_id,
             raw_text=raw_text,
             comment=comment,
+            payer_role=payer_role,
+            scope=scope,
         )
 
     async def update_transaction(
@@ -317,6 +340,7 @@ class TransactionService:
         payer_role: str | None = None,
         comment: str | None | object = _UNSET,
         source: TransactionSource | None = None,
+        scope: TransactionScope | None = None,
     ) -> CreatedTransactionSummary:
         if category_id is not None and category_sort_order is not None:
             msg = "Use either category_id or category_sort_order, not both"
@@ -387,6 +411,10 @@ class TransactionService:
 
         if source is not None and transaction.source != source.value:
             transaction.source = source.value
+            changed = True
+
+        if scope is not None and transaction.scope != scope.value:
+            transaction.scope = scope.value
             changed = True
 
         if changed:
@@ -466,6 +494,7 @@ class TransactionService:
             raw_text=previous.raw_text,
             source=TransactionSource(previous.source),
             comment=previous.comment,
+            scope=TransactionScope(previous.scope),
         )
 
     async def get_latest_transaction_for_user(
@@ -569,6 +598,7 @@ class TransactionService:
         raw_text: str | None,
         source: TransactionSource,
         comment: str | None,
+        scope: TransactionScope,
         occurred_at: datetime | None = None,
         transaction_type: TransactionType | None = None,
     ) -> CreatedTransactionSummary:
@@ -591,6 +621,7 @@ class TransactionService:
                 category_id=category.id,
                 type=resolved_transaction_type.value,
                 source=source.value,
+                scope=scope.value,
                 comment=_normalize_comment(comment),
                 raw_text=raw_text,
                 included_in_reports=included_in_reports,
@@ -658,6 +689,7 @@ class TransactionService:
             category_code=category.code,
             category_title=category.title,
             payer_role=payer.role,
+            scope=transaction.scope,
             occurred_at=transaction.occurred_at,
             included_in_reports=transaction.included_in_reports,
         )
@@ -712,6 +744,7 @@ def _transaction_snapshot(transaction: TransactionModel) -> dict[str, Any]:
         "category_id": transaction.category_id,
         "type": transaction.type,
         "source": transaction.source,
+        "scope": transaction.scope,
         "comment": transaction.comment,
         "raw_text": transaction.raw_text,
         "included_in_reports": transaction.included_in_reports,

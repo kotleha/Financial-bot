@@ -26,6 +26,11 @@ class TransactionSource(StrEnum):
     UNKNOWN = "unknown"
 
 
+class TransactionScope(StrEnum):
+    HOUSEHOLD = "household"
+    SALON = "salon"
+
+
 class BankEventBank(StrEnum):
     VTB = "vtb"
     SBER = "sber"

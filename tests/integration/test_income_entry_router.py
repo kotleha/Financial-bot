@@ -70,7 +70,8 @@ async def test_manual_income_entry_stores_safe_raw_marker(
     assert len(message.answers) == 1
     answer_lines = message.answers[0].splitlines()
     assert answer_lines[:3] == ["Учёл доход:", "100 000 ₽ — Зарплата", "Получатель: Муж"]
-    assert answer_lines[3].startswith("Дата: ")
+    assert answer_lines[3] == "Контур: Дом"
+    assert answer_lines[4].startswith("Дата: ")
     assert transaction is not None
     assert transaction.raw_text == "manual_income:income_salary"
     assert transaction.comment == "зарплата"

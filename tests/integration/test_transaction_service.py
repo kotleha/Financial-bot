@@ -4,7 +4,12 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from financial_bot.app.config import Settings
-from financial_bot.app.domain.types import AuditAction, TransactionSource, TransactionType
+from financial_bot.app.domain.types import (
+    AuditAction,
+    TransactionScope,
+    TransactionSource,
+    TransactionType,
+)
 from financial_bot.app.services.seed_service import seed_initial_data
 from financial_bot.app.services.transaction_service import TransactionService
 from financial_bot.app.storage.db import create_engine, create_session_factory
@@ -71,6 +76,7 @@ async def test_create_transaction_from_category_selection(
         assert saved is not None
         assert saved.amount == 350000
         assert saved.type == TransactionType.EXPENSE.value
+        assert saved.scope == TransactionScope.HOUSEHOLD.value
         assert saved.included_in_reports
         assert summary.payer_role == "husband"
         assert summary.category_code == "groceries"
@@ -290,6 +296,37 @@ async def test_create_transaction_from_category_sort_order(
 
 
 @pytest.mark.asyncio
+async def test_create_transaction_from_scoped_category_sort_order(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        service = TransactionService(session, settings)
+
+        summary = await service.create_from_category_sort_order(
+            amount=350000,
+            category_sort_order=18,
+            payer_telegram_id=1001,
+            raw_text="салон 3500 18 бумага",
+            comment="бумага",
+            payer_role="wife",
+            scope=TransactionScope.SALON,
+        )
+        await session.commit()
+
+    async with session_factory() as session:
+        saved = await TransactionRepository(session).get(summary.id)
+
+    assert saved is not None
+    assert saved.scope == TransactionScope.SALON.value
+    assert summary.scope == TransactionScope.SALON.value
+    assert summary.category_code == "stationery_supplies"
+    assert summary.payer_role == "wife"
+
+
+@pytest.mark.asyncio
 async def test_create_internal_transfer_from_category_sort_order_99(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -349,6 +386,58 @@ async def test_create_transaction_from_free_text_examples(
 
         assert summary.category_code == category_code
         assert summary.included_in_reports is included
+
+
+@pytest.mark.asyncio
+async def test_create_transaction_from_scoped_free_text(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        service = TransactionService(session, settings)
+
+        summary = await service.create_from_free_text(
+            text="салон 900 канцелярия бумага",
+            current_payer_telegram_id=1001,
+        )
+        await session.commit()
+
+    async with session_factory() as session:
+        saved = await TransactionRepository(session).get(summary.id)
+
+    assert saved is not None
+    assert saved.scope == TransactionScope.SALON.value
+    assert summary.category_code == "stationery_supplies"
+
+
+@pytest.mark.asyncio
+async def test_create_scoped_income_transaction(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        service = TransactionService(session, settings)
+
+        summary = await service.create_income(
+            amount=70_000_00,
+            recipient_telegram_id=1002,
+            raw_text="income",
+            category_code="income_business",
+            scope=TransactionScope.SALON,
+        )
+        await session.commit()
+
+    async with session_factory() as session:
+        saved = await TransactionRepository(session).get(summary.id)
+
+    assert saved is not None
+    assert saved.type == TransactionType.INCOME.value
+    assert saved.scope == TransactionScope.SALON.value
+    assert summary.scope == TransactionScope.SALON.value
 
 
 @pytest.mark.asyncio

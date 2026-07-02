@@ -53,6 +53,7 @@ class BankEventIngestResponse(BaseModel):
     suggested_category_code: str | None
     suggested_category_title: str | None
     suggested_category_source: str
+    scope: str
     suggestion_conflict: bool
     requires_confirmation: bool
     telegram_notification_sent: bool
@@ -394,6 +395,7 @@ def _response_from_result(
         suggested_category_code=result.suggested_category_code,
         suggested_category_title=result.suggested_category_title,
         suggested_category_source=result.suggested_category_source.value,
+        scope=result.scope.value,
         suggestion_conflict=result.suggestion_conflict,
         requires_confirmation=result.requires_confirmation,
         telegram_notification_sent=notification_sent,

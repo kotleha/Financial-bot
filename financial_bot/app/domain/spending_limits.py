@@ -100,6 +100,7 @@ def default_spending_limit_config() -> SpendingLimitConfig:
                 "investments_savings": SavingsTargetRule(amount=3_000_000),
                 "help_reserve": MonthlyLimitRule(amount=1_000_000),
                 "taxes": NoLimitRule(),
+                "stationery_supplies": NoLimitRule(),
             }
         ),
     )

@@ -3,10 +3,10 @@ from financial_bot.app.domain.types import CategoryOwnerRole
 
 
 def test_default_categories_have_stable_sort_order_and_owner() -> None:
-    assert len(DEFAULT_CATEGORIES) == 25
-    assert [category.sort_order for category in DEFAULT_CATEGORIES[:17]] == list(range(1, 18))
-    assert DEFAULT_CATEGORIES[17].sort_order == 99
-    assert [category.sort_order for category in DEFAULT_CATEGORIES[18:]] == list(range(100, 107))
+    assert len(DEFAULT_CATEGORIES) == 26
+    assert [category.sort_order for category in DEFAULT_CATEGORIES[:18]] == list(range(1, 19))
+    assert DEFAULT_CATEGORIES[18].sort_order == 99
+    assert [category.sort_order for category in DEFAULT_CATEGORIES[19:]] == list(range(100, 107))
     assert all(category.owner_role for category in DEFAULT_CATEGORIES)
 
 

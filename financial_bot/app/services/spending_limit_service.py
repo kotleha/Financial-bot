@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,7 +120,7 @@ class SpendingLimitService:
         stored = await self._settings_repository.get_value(SPENDING_LIMITS_SETTINGS_KEY)
         if stored is None:
             return default_spending_limit_config()
-        return parse_spending_limit_config(stored)
+        return _with_default_missing_rules(parse_spending_limit_config(stored))
 
     async def set_config(self, config: SpendingLimitConfig) -> None:
         if config.currency != self._settings.default_currency:
@@ -401,3 +402,21 @@ class SpendingLimitService:
         updated_config = parse_spending_limit_config(config_dict)
         await self.set_config(updated_config)
         return updated_config
+
+
+def _with_default_missing_rules(config: SpendingLimitConfig) -> SpendingLimitConfig:
+    default_config = default_spending_limit_config()
+    missing = {
+        category_code: rule
+        for category_code, rule in default_config.categories.items()
+        if category_code not in config.categories
+    }
+    if not missing:
+        return config
+
+    return SpendingLimitConfig(
+        schema_version=config.schema_version,
+        currency=config.currency,
+        thresholds=config.thresholds,
+        categories=MappingProxyType({**missing, **config.categories}),
+    )

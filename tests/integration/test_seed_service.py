@@ -108,7 +108,7 @@ async def test_seed_assigns_shared_categories_and_internal_transfer(
         assert groceries is not None
         assert groceries.owner_user_id is None
         assert groceries.owner_role == CategoryOwnerRole.SYSTEM.value
-        assert len(list(active_expense_categories)) == 17
+        assert len(list(active_expense_categories)) == 18
         assert internal_transfer is not None
         assert internal_transfer.owner_user_id is None
         assert internal_transfer.owner_role == CategoryOwnerRole.SYSTEM.value

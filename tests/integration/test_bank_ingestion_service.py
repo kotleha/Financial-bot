@@ -10,6 +10,7 @@ from financial_bot.app.domain.types import (
     BankEventOperationKind,
     BankEventParseStatus,
     BankEventSuggestionSource,
+    TransactionScope,
     TransactionSource,
     TransactionType,
 )
@@ -834,8 +835,42 @@ async def test_bank_event_category_can_be_selected_before_confirm(
 
         assert updated.suggested_category_code == "groceries"
         assert updated.suggested_category_source == BankEventSuggestionSource.MANUAL
+    assert confirmed.transaction is not None
+    assert confirmed.transaction.category_code == "groceries"
+
+
+@pytest.mark.asyncio
+async def test_bank_event_scope_can_be_selected_before_confirm(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        service = BankIngestionService(session, settings)
+        imported = await service.import_manual_sms(
+            text="Счёт карты MIR-1111 11:09 Покупка 290р APTEKA TEST Баланс: 924.14р",
+            telegram_user_id=1001,
+            received_at=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
+        )
+
+        updated = await service.update_event_scope(
+            event_id=imported.event_id,
+            scope=TransactionScope.SALON,
+            telegram_user_id=1001,
+        )
+        confirmed = await service.confirm_event(event_id=imported.event_id, telegram_user_id=1001)
+
+        event = await session.get(BankEventModel, imported.event_id)
         assert confirmed.transaction is not None
-        assert confirmed.transaction.category_code == "groceries"
+        transaction = await session.get(TransactionModel, confirmed.transaction.id)
+
+    assert updated.scope == TransactionScope.SALON
+    assert event is not None
+    assert event.scope == TransactionScope.SALON.value
+    assert transaction is not None
+    assert transaction.scope == TransactionScope.SALON.value
+    assert confirmed.transaction.scope == TransactionScope.SALON.value
 
 
 @pytest.mark.asyncio
@@ -1168,7 +1203,41 @@ async def test_autosaved_bank_event_category_update_changes_transaction_and_rule
         assert transaction.category_id == restaurants.id
         assert transaction.deleted_at is None
         assert rule.category_id == restaurants.id
-        assert rule.hit_count == 1
+    assert rule.hit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_autosaved_bank_event_scope_update_changes_linked_transaction(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        service = BankIngestionService(session, settings)
+        third = await _create_autosaved_unknown_shop_event(service)
+
+        updated = await service.update_event_scope(
+            event_id=third.event_id,
+            scope=TransactionScope.SALON,
+            telegram_user_id=1001,
+        )
+
+        event = await session.get(BankEventModel, third.event_id)
+        transaction = (
+            await session.scalars(
+                select(TransactionModel).where(
+                    TransactionModel.raw_text == f"bank_event_autosaved:{third.event_id}"
+                )
+            )
+        ).one()
+
+    assert updated.parse_status == BankEventParseStatus.AUTOSAVED
+    assert updated.scope == TransactionScope.SALON
+    assert event is not None
+    assert event.scope == TransactionScope.SALON.value
+    assert transaction.scope == TransactionScope.SALON.value
+    assert transaction.deleted_at is None
 
 
 @pytest.mark.asyncio

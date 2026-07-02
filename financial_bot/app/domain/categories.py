@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 from financial_bot.app.domain.types import CategoryOwnerRole
 
+VISIBLE_EXPENSE_SORT_ORDER_MAX = 18
+
 
 @dataclass(frozen=True, slots=True)
 class CategorySeed:
@@ -40,7 +42,7 @@ DEFAULT_CATEGORIES: tuple[CategorySeed, ...] = (
     ),
     CategorySeed(
         code="auto",
-        title="Авто (бензин, базовое ТО)",
+        title="Авто/Транспорт/Такси",
         owner_role=CategoryOwnerRole.SYSTEM,
         sort_order=4,
     ),
@@ -121,6 +123,12 @@ DEFAULT_CATEGORIES: tuple[CategorySeed, ...] = (
         title="Налоги",
         owner_role=CategoryOwnerRole.SYSTEM,
         sort_order=17,
+    ),
+    CategorySeed(
+        code="stationery_supplies",
+        title="Канцелярия/Расходники",
+        owner_role=CategoryOwnerRole.SYSTEM,
+        sort_order=18,
     ),
     CategorySeed(
         code="internal_transfer",
@@ -215,6 +223,9 @@ DEFAULT_CATEGORY_ALIASES: tuple[CategoryAliasSeed, ...] = (
     CategoryAliasSeed("азс", "auto"),
     CategoryAliasSeed("топливо", "auto"),
     CategoryAliasSeed("техобслуживание", "auto"),
+    CategoryAliasSeed("такси", "auto"),
+    CategoryAliasSeed("яндекс такси", "auto"),
+    CategoryAliasSeed("транспорт", "auto"),
     CategoryAliasSeed("питомцы", "pets"),
     CategoryAliasSeed("питомец", "pets"),
     CategoryAliasSeed("кот", "pets"),
@@ -298,6 +309,11 @@ DEFAULT_CATEGORY_ALIASES: tuple[CategoryAliasSeed, ...] = (
     CategoryAliasSeed("имущественный налог", "taxes"),
     CategoryAliasSeed("транспортный налог", "taxes"),
     CategoryAliasSeed("земельный налог", "taxes"),
+    CategoryAliasSeed("канцелярия", "stationery_supplies"),
+    CategoryAliasSeed("канцтовары", "stationery_supplies"),
+    CategoryAliasSeed("бумага", "stationery_supplies"),
+    CategoryAliasSeed("ручки", "stationery_supplies"),
+    CategoryAliasSeed("расходники", "stationery_supplies"),
     CategoryAliasSeed("сам себе", "internal_transfer"),
     CategoryAliasSeed("себе", "internal_transfer"),
     CategoryAliasSeed("самоперевод", "internal_transfer"),
