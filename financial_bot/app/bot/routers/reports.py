@@ -5,15 +5,15 @@ from aiogram.filters import Command
 from aiogram.types import FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from financial_bot.app.bot.formatters.month_reports import format_month_report
+from financial_bot.app.bot.formatters.month_reports import format_smart_month_summary
 from financial_bot.app.bot.formatters.reports import format_period_report
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.accounting_scope import extract_scope_filter, scope_filter_label
 from financial_bot.app.domain.periods import PeriodKind, parse_period_kind
 from financial_bot.app.domain.types import TransactionScope
 from financial_bot.app.services.chart_service import ChartResult, ChartService
-from financial_bot.app.services.month_report_service import MonthReportService
 from financial_bot.app.services.report_service import ReportService
+from financial_bot.app.services.smart_month_summary_service import SmartMonthSummaryService
 
 router = Router(name=__name__)
 
@@ -219,8 +219,12 @@ async def _answer_month_summary(
     settings: Settings,
     scope: TransactionScope | None,
 ) -> None:
-    report = await MonthReportService(session, settings).build_month_report(scope=scope)
-    await message.answer(format_month_report(report))
+    telegram_user_id = message.from_user.id if message.from_user is not None else None
+    summary = await SmartMonthSummaryService(session, settings).build_summary(
+        scope=scope,
+        telegram_user_id=telegram_user_id,
+    )
+    await message.answer(format_smart_month_summary(summary))
 
 
 async def _answer_payer_report(

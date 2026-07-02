@@ -1,11 +1,14 @@
-from financial_bot.app.domain.accounting_scope import scope_filter_label
+from financial_bot.app.domain.accounting_scope import scope_filter_label, scope_label
 from financial_bot.app.domain.money import format_money_minor, round_minor_to_whole_units_minor
+from financial_bot.app.domain.monthly_insights import (
+    MonthConclusion,
+    ScopeSnapshot,
+    build_month_conclusion,
+)
 from financial_bot.app.domain.types import UserRole
 from financial_bot.app.services.month_report_service import MonthReport
-from financial_bot.app.services.spending_limit_service import (
-    BudgetLimitLine,
-    BudgetSavingsTargetLine,
-)
+from financial_bot.app.services.smart_month_summary_service import SmartMonthSummary
+from financial_bot.app.services.spending_limit_service import BudgetSavingsTargetLine
 
 ROLE_LABELS = {
     UserRole.HUSBAND.value: "Муж",
@@ -14,6 +17,27 @@ ROLE_LABELS = {
 
 
 def format_month_report(report: MonthReport) -> str:
+    return _format_summary(
+        report=report,
+        conclusion=build_month_conclusion(report),
+        scope_snapshots=(),
+    )
+
+
+def format_smart_month_summary(summary: SmartMonthSummary) -> str:
+    return _format_summary(
+        report=summary.report,
+        conclusion=summary.conclusion,
+        scope_snapshots=summary.scope_snapshots,
+    )
+
+
+def _format_summary(
+    *,
+    report: MonthReport,
+    conclusion: MonthConclusion,
+    scope_snapshots: tuple[ScopeSnapshot, ...],
+) -> str:
     lines = [
         f"Итог месяца: {report.period.label}",
         f"Контур: {scope_filter_label(report.scope)}",
@@ -23,31 +47,34 @@ def format_month_report(report: MonthReport) -> str:
     if not report.has_activity:
         lines.extend(
             [
-                "Данных за месяц пока нет.",
-                "Когда появятся расходы или доходы, здесь будет короткий финансовый вывод.",
+                "Вывод",
+                conclusion.headline,
+                "",
+                "Что важно",
             ]
+        )
+        if conclusion.insights:
+            lines.extend(
+                f"{index}. {insight.message}"
+                for index, insight in enumerate(conclusion.insights, start=1)
+            )
+        lines.append(
+            f"{len(conclusion.insights) + 1}. "
+            "Когда появятся расходы или доходы, бот соберёт полный итог месяца."
         )
         return "\n".join(lines)
 
-    lines.extend(
-        [
-            "Главное",
-            f"День месяца: {report.pace.elapsed_days} из {report.pace.day_count}",
-            f"Доходы: {_money(report.income_total, report.currency)}",
-            f"Расходы: {_money(report.total_amount, report.currency)}",
-            f"После расходов: {_signed_money(report.net_after_expenses, report.currency)}",
-        ]
-    )
+    lines.extend(_headline_block(report))
+    lines.extend(["", "Вывод", conclusion.headline])
+    if conclusion.details:
+        lines.append(conclusion.details)
 
-    if report.has_expenses:
+    if conclusion.insights:
+        lines.extend(["", "Что важно"])
         lines.extend(
-            [
-                f"Темп расходов: {_money(report.pace.average_per_day, report.currency)}/день",
-                f"Прогноз расходов: {_money(report.pace.forecast_amount, report.currency)}",
-            ]
+            f"{index}. {insight.message}"
+            for index, insight in enumerate(conclusion.insights, start=1)
         )
-
-    lines.extend(["", "Коротко", _format_plain_summary(report)])
 
     if report.top_categories:
         lines.extend(["", "Расходы по категориям"])
@@ -77,38 +104,28 @@ def format_month_report(report: MonthReport) -> str:
                 f"{_money(report.other_income_categories_amount, report.currency)}"
             )
 
-    if report.scope is not None:
+    if scope_snapshots:
+        lines.extend(["", "Дом и Салон"])
         lines.extend(
-            [
-                "",
-                "Лимиты и резерв",
-                "Лимиты считаются в общем отчёте по всем контурам.",
-            ]
+            _format_scope_snapshot(snapshot, report.currency) for snapshot in scope_snapshots
         )
-    elif report.has_expenses:
+
+    if report.scope is None:
         lines.extend(["", "Лимиты и резерв"])
+    if report.scope is None and report.has_expenses:
         lines.append(f"Свободно в лимитах: {_money(report.under_budget_pool, report.currency)}")
         lines.append(f"Превышения: {_money(report.overrun_total, report.currency)}")
-        lines.append(_format_net_savings(report.net_savings, report.currency))
-    else:
-        lines.extend(["", "Лимиты и резерв", "Расходов пока нет, оценка резерва появится позже."])
-
-    if report.scope is None and report.has_expenses and report.budget_risks:
-        lines.extend(["", "Под вниманием"])
-        lines.extend(_format_budget_risk(line, report.currency) for line in report.budget_risks)
-
-    if report.scope is None and report.has_expenses and report.no_limit_lines:
-        lines.extend(["", "Без лимита"])
-        lines.extend(
-            f"{line.title} — {_money(line.spent_amount, report.currency)}"
-            for line in report.no_limit_lines
-        )
-
-    if report.scope is None and report.has_expenses and report.savings_target_lines:
-        lines.extend(["", "Накопления"])
-        lines.extend(
-            _format_savings_target(line, report.currency) for line in report.savings_target_lines
-        )
+        lines.append(_format_net_savings(report))
+        if report.savings_target_lines:
+            lines.extend(
+                _format_savings_target(line, report.currency)
+                for line in report.savings_target_lines
+            )
+        if report.no_limit_lines:
+            no_limit_total = sum(line.spent_amount for line in report.no_limit_lines)
+            lines.append(f"Без лимита: {_money(no_limit_total, report.currency)}")
+    elif report.scope is None:
+        lines.append("Расходов пока нет, оценка резерва появится позже.")
 
     if report.has_expenses:
         lines.extend(["", "Кто платил"])
@@ -130,19 +147,42 @@ def format_month_report(report: MonthReport) -> str:
     return "\n".join(lines)
 
 
-def _format_budget_risk(line: BudgetLimitLine, currency: str) -> str:
-    base = (
-        f"{line.title} — {_money(line.spent_amount, currency)} из "
-        f"{_money(line.limit_amount, currency)} ({_percent(line.usage_percent)})"
+def _headline_block(report: MonthReport) -> list[str]:
+    lines = [
+        "Главное",
+        f"День месяца: {report.pace.elapsed_days} из {report.pace.day_count}",
+        f"Доходы: {_money(report.income_total, report.currency)}",
+        f"Расходы: {_money(report.total_amount, report.currency)}",
+        f"После расходов: {_signed_money(report.net_after_expenses, report.currency)}",
+    ]
+    if report.has_expenses:
+        lines.extend(
+            [
+                f"Темп расходов: {_money(report.pace.average_per_day, report.currency)}/день",
+                f"Прогноз расходов: {_money(report.pace.forecast_amount, report.currency)}",
+            ]
+        )
+    return lines
+
+
+def _format_scope_snapshot(snapshot: ScopeSnapshot, currency: str) -> str:
+    label = scope_label(snapshot.scope)
+    if not snapshot.has_activity:
+        return f"{label}: данных за месяц пока нет."
+
+    line = (
+        f"{label}: расходы {_money(snapshot.expenses, currency)}, "
+        f"доходы {_money(snapshot.income, currency)}, "
+        f"итог {_signed_money(snapshot.net_after_expenses, currency)}"
     )
-    if line.remaining_amount >= 0:
-        return f"{base}; осталось {_money(line.remaining_amount, currency)}"
-    return f"{base}; превышение {_money(line.overrun_amount, currency)}"
+    if snapshot.top_category_title:
+        line = f"{line}; крупная категория: {snapshot.top_category_title}"
+    return f"{line}."
 
 
 def _format_savings_target(line: BudgetSavingsTargetLine, currency: str) -> str:
     base = (
-        f"{line.title} — внесено {_money(line.actual_amount, currency)} из "
+        f"{line.title}: внесено {_money(line.actual_amount, currency)} из "
         f"{_money(line.target_amount, currency)}"
     )
     if line.delta_amount >= 0:
@@ -150,45 +190,14 @@ def _format_savings_target(line: BudgetSavingsTargetLine, currency: str) -> str:
     return f"{base}; не хватает {_money(abs(line.delta_amount), currency)}"
 
 
-def _format_net_savings(amount: int, currency: str) -> str:
+def _format_net_savings(report: MonthReport) -> str:
+    amount = report.net_savings
+    currency = report.currency
     if amount >= 0:
+        if report.has_income and report.net_after_expenses < 0:
+            return "Свободный резерв есть по лимитам, но реальный cashflow сейчас в минусе."
         return f"Можно отложить по лимитам: {_money(amount, currency)}"
     return f"Нужно компенсировать перерасход: {_money(abs(amount), currency)}"
-
-
-def _format_plain_summary(report: MonthReport) -> str:
-    if report.has_income and not report.has_expenses:
-        cashflow_part = (
-            f"доходы внесены, расходов пока нет: +{_money(report.income_total, report.currency)}"
-        )
-    elif report.has_income and report.net_after_expenses >= 0:
-        cashflow_part = (
-            f"месяц пока в плюсе на {_money(report.net_after_expenses, report.currency)}"
-        )
-    elif report.has_income:
-        cashflow_part = (
-            f"расходы выше доходов на {_money(abs(report.net_after_expenses), report.currency)}"
-        )
-    elif report.has_expenses:
-        cashflow_part = "доходы за месяц ещё не внесены, поэтому остаток неполный"
-    else:
-        cashflow_part = "расходы ещё не внесены"
-
-    if report.scope is not None:
-        budget_part = "лимиты и копилка считаются только в общем отчёте"
-    elif not report.has_expenses:
-        budget_part = "лимитный резерв появится после первых расходов"
-    elif report.overrun_total > 0:
-        budget_part = (
-            f"превышения уже съели {_money(report.overrun_total, report.currency)} "
-            "из свободных лимитов"
-        )
-    elif report.net_savings > 0:
-        budget_part = f"по лимитам можно отложить до {_money(report.net_savings, report.currency)}"
-    else:
-        budget_part = "по лимитам пока нет запаса для копилки"
-
-    return f"{cashflow_part}; {budget_part}."
 
 
 def _signed_money(amount_minor: int, currency: str) -> str:
