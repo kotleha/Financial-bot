@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.periods import Period, PeriodKind, resolve_period
-from financial_bot.app.domain.types import UserRole
+from financial_bot.app.domain.types import TransactionScope, UserRole
 from financial_bot.app.storage.repositories.report_repository import ReportRepository
 
 
@@ -31,6 +31,7 @@ class PeriodReport:
     period: Period
     total_amount: int
     currency: str
+    scope: TransactionScope | None
     by_payer: tuple[PayerReportLine, ...]
     by_category: tuple[CategoryReportLine, ...]
 
@@ -45,11 +46,24 @@ class ReportService:
         kind: PeriodKind,
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> PeriodReport:
         period = resolve_period(kind, now=now, timezone=self._settings.timezone)
-        total_amount = await self._reports.total_expenses(period.start_at, period.end_at)
-        payer_rows = await self._reports.totals_by_payer(period.start_at, period.end_at)
-        category_rows = await self._reports.totals_by_category(period.start_at, period.end_at)
+        total_amount = await self._reports.total_expenses(
+            period.start_at,
+            period.end_at,
+            scope=scope,
+        )
+        payer_rows = await self._reports.totals_by_payer(
+            period.start_at,
+            period.end_at,
+            scope=scope,
+        )
+        category_rows = await self._reports.totals_by_category(
+            period.start_at,
+            period.end_at,
+            scope=scope,
+        )
 
         payer_amounts = {row.role: row.amount for row in payer_rows}
         by_payer = tuple(
@@ -77,6 +91,7 @@ class ReportService:
             period=period,
             total_amount=total_amount,
             currency=self._settings.default_currency,
+            scope=scope,
             by_payer=by_payer,
             by_category=by_category,
         )

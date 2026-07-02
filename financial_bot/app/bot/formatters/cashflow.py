@@ -1,5 +1,6 @@
 from financial_bot.app.bot.formatters.context_hints import BUDGET_SAVINGS_HINT, INCOME_REPORT_HINT
 from financial_bot.app.bot.formatters.reports import ROLE_LABELS
+from financial_bot.app.domain.accounting_scope import scope_filter_label
 from financial_bot.app.domain.money import format_money_minor, round_minor_to_whole_units_minor
 from financial_bot.app.services.cashflow_service import CashflowReport
 
@@ -7,6 +8,7 @@ from financial_bot.app.services.cashflow_service import CashflowReport
 def format_cashflow_report(report: CashflowReport) -> str:
     lines = [
         f"Денежный поток за {report.period.label}",
+        f"Контур: {scope_filter_label(report.scope)}",
         "",
         f"Доходы: {_format_money(report.income_total, report.currency)}",
         f"Расходы: {_format_money(report.expense_total, report.currency)}",

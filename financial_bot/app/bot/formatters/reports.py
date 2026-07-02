@@ -1,3 +1,4 @@
+from financial_bot.app.domain.accounting_scope import scope_filter_label
 from financial_bot.app.domain.money import format_money_minor, round_minor_to_whole_units_minor
 from financial_bot.app.domain.types import UserRole
 from financial_bot.app.services.report_service import PeriodReport
@@ -11,6 +12,7 @@ ROLE_LABELS = {
 def format_period_report(report: PeriodReport) -> str:
     lines = [
         report.period.label,
+        f"Контур: {scope_filter_label(report.scope)}",
         "",
         f"Фактические расходы: {_format_report_money(report.total_amount, report.currency)}",
     ]

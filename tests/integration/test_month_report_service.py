@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import pytest_asyncio
 from financial_bot.app.config import Settings
+from financial_bot.app.domain.types import TransactionScope
 from financial_bot.app.services.month_report_service import MonthReportService
 from financial_bot.app.services.seed_service import seed_initial_data
 from financial_bot.app.services.transaction_service import TransactionService
@@ -158,3 +159,56 @@ async def test_month_report_keeps_special_budget_categories_out_of_top_categorie
         ("investments_savings", 30_000_00)
     ]
     assert report.budget_risks == ()
+
+
+@pytest.mark.asyncio
+async def test_scoped_month_report_hides_global_budget_lines(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+    timezone = ZoneInfo(settings.timezone)
+    now = datetime(2026, 6, 20, 12, tzinfo=timezone)
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        transactions = TransactionService(session, settings)
+        restaurants = next(
+            category
+            for category in await transactions.list_category_options()
+            if category.code == "restaurants_cafes"
+        )
+        expense = await transactions.create_from_category_selection(
+            amount=40_000_00,
+            category_id=restaurants.id,
+            payer_telegram_id=1001,
+            raw_text="салон 40000 кафе",
+            scope=TransactionScope.SALON,
+        )
+        income = await transactions.create_income(
+            amount=100_000_00,
+            recipient_telegram_id=1002,
+            raw_text="manual_income:business",
+            category_code="income_business",
+            scope=TransactionScope.SALON,
+        )
+        for transaction in (expense, income):
+            await transactions.update_transaction(
+                transaction_id=transaction.id,
+                changed_by_telegram_id=1001,
+                occurred_at=datetime(2026, 6, 10, 12, tzinfo=timezone),
+            )
+
+        report = await MonthReportService(session, settings).build_month_report(
+            now=now,
+            scope=TransactionScope.SALON,
+        )
+        await session.commit()
+
+    assert report.scope == TransactionScope.SALON
+    assert report.total_amount == 40_000_00
+    assert report.income_total == 100_000_00
+    assert report.net_after_expenses == 60_000_00
+    assert report.budget_risks == ()
+    assert report.no_limit_lines == ()
+    assert report.savings_target_lines == ()
+    assert report.net_savings == 0

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.money import round_minor_to_whole_units_minor
 from financial_bot.app.domain.periods import Period, PeriodKind
-from financial_bot.app.domain.types import UserRole
+from financial_bot.app.domain.types import TransactionScope, UserRole
 from financial_bot.app.services.cashflow_service import IncomeCategoryLine, IncomeRecipientLine
 from financial_bot.app.services.report_service import (
     CategoryReportLine,
@@ -37,6 +37,7 @@ class MonthPace:
 class MonthReport:
     period: Period
     currency: str
+    scope: TransactionScope | None
     total_amount: int
     income_total: int
     net_after_expenses: int
@@ -84,6 +85,7 @@ class MonthReportService:
         top_category_limit: int = 5,
         top_income_category_limit: int = 3,
         budget_risk_limit: int = 4,
+        scope: TransactionScope | None = None,
     ) -> MonthReport:
         if top_category_limit <= 0:
             msg = "top_category_limit must be positive"
@@ -96,18 +98,25 @@ class MonthReportService:
             raise ValueError(msg)
 
         report_now = _local_now(now, self._settings.timezone)
-        period_report = await self._reports.build_period_report(PeriodKind.MONTH, now=report_now)
+        period_report = await self._reports.build_period_report(
+            PeriodKind.MONTH,
+            now=report_now,
+            scope=scope,
+        )
         income_total = await self._cashflow.total_income(
             period_report.period.start_at,
             period_report.period.end_at,
+            scope=scope,
         )
         income_rows = await self._cashflow.income_by_recipient(
             period_report.period.start_at,
             period_report.period.end_at,
+            scope=scope,
         )
         income_category_rows = await self._cashflow.income_by_category(
             period_report.period.start_at,
             period_report.period.end_at,
+            scope=scope,
         )
         income_amounts = {row.role: row.amount for row in income_rows}
         income_by_recipient = tuple(
@@ -130,10 +139,7 @@ class MonthReportService:
         top_income_categories = income_categories[:top_income_category_limit]
         other_income_categories = income_categories[top_income_category_limit:]
         budget = await self._limits.build_monthly_report(now=report_now)
-        special_category_codes = {
-            *(line.code for line in budget.no_limit_lines),
-            *(line.code for line in budget.savings_target_lines),
-        }
+        special_category_codes = _special_budget_category_codes(budget) if scope is None else set()
         regular_categories = tuple(
             line for line in period_report.by_category if line.code not in special_category_codes
         )
@@ -149,6 +155,7 @@ class MonthReportService:
         return MonthReport(
             period=period_report.period,
             currency=period_report.currency,
+            scope=scope,
             total_amount=period_report.total_amount,
             income_total=income_total,
             net_after_expenses=income_total - period_report.total_amount,
@@ -161,12 +168,14 @@ class MonthReportService:
             top_income_categories=top_income_categories,
             other_income_categories_count=len(other_income_categories),
             other_income_categories_amount=sum(line.amount for line in other_income_categories),
-            budget_risks=_top_budget_risks(budget, limit=budget_risk_limit),
-            no_limit_lines=budget.no_limit_lines,
-            savings_target_lines=budget.savings_target_lines,
-            under_budget_pool=budget.under_budget_pool,
-            overrun_total=budget.overrun_total,
-            net_savings=budget.net_savings,
+            budget_risks=_top_budget_risks(budget, limit=budget_risk_limit)
+            if scope is None
+            else (),
+            no_limit_lines=budget.no_limit_lines if scope is None else (),
+            savings_target_lines=budget.savings_target_lines if scope is None else (),
+            under_budget_pool=budget.under_budget_pool if scope is None else 0,
+            overrun_total=budget.overrun_total if scope is None else 0,
+            net_savings=budget.net_savings if scope is None else 0,
             budget=budget,
         )
 
@@ -214,6 +223,13 @@ def _top_budget_risks(budget: BudgetReport, *, limit: int) -> tuple[BudgetLimitL
             reverse=True,
         )[:limit]
     )
+
+
+def _special_budget_category_codes(budget: BudgetReport) -> set[str]:
+    return {
+        *(line.code for line in budget.no_limit_lines),
+        *(line.code for line in budget.savings_target_lines),
+    }
 
 
 def _share(amount: int, total: int) -> float:

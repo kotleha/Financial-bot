@@ -9,6 +9,7 @@ import pytest
 import pytest_asyncio
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.periods import PeriodKind
+from financial_bot.app.domain.types import TransactionScope
 from financial_bot.app.services.chart_service import (
     CHART_FILE_PREFIX,
     DASHBOARD_COLORS,
@@ -255,6 +256,71 @@ def _assert_png(result: ChartResult | None) -> None:
         assert len(image_bytes) > 1000
     finally:
         result.path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_chart_service_generates_scoped_pngs(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+    timezone = ZoneInfo(settings.timezone)
+    now = datetime(2026, 6, 20, 12, tzinfo=timezone)
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        transactions = TransactionService(session, settings)
+        restaurants = next(
+            category
+            for category in await transactions.list_category_options()
+            if category.code == "restaurants_cafes"
+        )
+        expense = await transactions.create_from_category_selection(
+            amount=40_000_00,
+            category_id=restaurants.id,
+            payer_telegram_id=1001,
+            raw_text="салон 40000 кафе",
+            scope=TransactionScope.SALON,
+        )
+        income = await transactions.create_income(
+            amount=100_000_00,
+            recipient_telegram_id=1002,
+            raw_text="manual_income:business",
+            category_code="income_business",
+            scope=TransactionScope.SALON,
+        )
+        for transaction in (expense, income):
+            await transactions.update_transaction(
+                transaction_id=transaction.id,
+                changed_by_telegram_id=1001,
+                occurred_at=datetime(2026, 6, 10, 12, tzinfo=timezone),
+            )
+
+        service = ChartService(session, settings)
+        category_chart = await service.create_categories_chart(
+            PeriodKind.MONTH,
+            now=now,
+            scope=TransactionScope.SALON,
+        )
+        dashboard = await service.create_month_dashboard_chart(
+            now=now,
+            scope=TransactionScope.SALON,
+        )
+        cashflow = await service.create_cashflow_dashboard_chart(
+            PeriodKind.MONTH,
+            now=now,
+            scope=TransactionScope.SALON,
+        )
+        await session.commit()
+
+    assert category_chart is not None
+    assert category_chart.caption.endswith("· Салон")
+    assert dashboard is not None
+    assert dashboard.caption.endswith("· Салон")
+    assert cashflow is not None
+    assert cashflow.caption.endswith("· Салон")
+    _assert_png(category_chart)
+    _assert_png(dashboard)
+    _assert_png(cashflow)
 
 
 @pytest.mark.asyncio

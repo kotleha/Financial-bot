@@ -20,6 +20,7 @@ def test_format_cashflow_report_groups_income_before_recipients() -> None:
             end_at=datetime(2026, 7, 1, tzinfo=timezone),
         ),
         currency="RUB",
+        scope=None,
         income_total=125_000_00,
         expense_total=25_000_00,
         net_after_expenses=100_000_00,

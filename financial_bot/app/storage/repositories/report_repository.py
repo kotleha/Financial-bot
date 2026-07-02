@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from financial_bot.app.domain.types import TransactionType
+from financial_bot.app.domain.types import TransactionScope, TransactionType
 from financial_bot.app.storage.models import CategoryModel, TransactionModel, UserModel
 
 
@@ -27,19 +27,31 @@ class ReportRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def total_expenses(self, start_at: datetime, end_at: datetime) -> int:
+    async def total_expenses(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+        *,
+        scope: TransactionScope | None = None,
+    ) -> int:
         result = await self._session.execute(
             select(func.coalesce(func.sum(_signed_report_amount()), 0)).where(
-                *_report_effective_filters(start_at, end_at)
+                *_report_effective_filters(start_at, end_at, scope=scope)
             )
         )
         return int(result.scalar_one())
 
-    async def totals_by_payer(self, start_at: datetime, end_at: datetime) -> list[PayerTotalRow]:
+    async def totals_by_payer(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+        *,
+        scope: TransactionScope | None = None,
+    ) -> list[PayerTotalRow]:
         result = await self._session.execute(
             select(UserModel.role, func.coalesce(func.sum(_signed_report_amount()), 0))
             .join(UserModel, TransactionModel.payer_user_id == UserModel.id)
-            .where(*_report_effective_filters(start_at, end_at))
+            .where(*_report_effective_filters(start_at, end_at, scope=scope))
             .group_by(UserModel.role)
             .order_by(UserModel.role)
         )
@@ -53,6 +65,8 @@ class ReportRepository:
         self,
         start_at: datetime,
         end_at: datetime,
+        *,
+        scope: TransactionScope | None = None,
     ) -> list[CategoryTotalRow]:
         result = await self._session.execute(
             select(
@@ -63,7 +77,7 @@ class ReportRepository:
                 func.coalesce(func.sum(_signed_report_amount()), 0),
             )
             .join(CategoryModel, TransactionModel.category_id == CategoryModel.id)
-            .where(*_report_effective_filters(start_at, end_at))
+            .where(*_report_effective_filters(start_at, end_at, scope=scope))
             .group_by(
                 CategoryModel.code,
                 CategoryModel.title,
@@ -85,8 +99,13 @@ class ReportRepository:
         ]
 
 
-def _report_effective_filters(start_at: datetime, end_at: datetime):
-    return (
+def _report_effective_filters(
+    start_at: datetime,
+    end_at: datetime,
+    *,
+    scope: TransactionScope | None = None,
+):
+    filters = [
         TransactionModel.type.in_(
             (TransactionType.EXPENSE.value, TransactionType.CORRECTION.value)
         ),
@@ -94,7 +113,10 @@ def _report_effective_filters(start_at: datetime, end_at: datetime):
         TransactionModel.deleted_at.is_(None),
         TransactionModel.occurred_at >= start_at,
         TransactionModel.occurred_at < end_at,
-    )
+    ]
+    if scope is not None:
+        filters.append(TransactionModel.scope == scope.value)
+    return tuple(filters)
 
 
 def _signed_report_amount():

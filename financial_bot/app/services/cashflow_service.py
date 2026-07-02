@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.periods import Period, PeriodKind
-from financial_bot.app.domain.types import UserRole
+from financial_bot.app.domain.types import TransactionScope, UserRole
 from financial_bot.app.services.report_service import ReportService
 from financial_bot.app.services.spending_limit_service import SpendingLimitService
 from financial_bot.app.storage.repositories.cashflow_repository import CashflowRepository
@@ -31,6 +31,7 @@ class IncomeCategoryLine:
 class CashflowReport:
     period: Period
     currency: str
+    scope: TransactionScope | None
     income_total: int
     expense_total: int
     net_after_expenses: int
@@ -51,30 +52,39 @@ class CashflowService:
         kind: PeriodKind = PeriodKind.MONTH,
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> CashflowReport:
         report_now = _local_now(now, self._settings.timezone)
-        expense_report = await self._reports.build_period_report(kind, now=report_now)
+        expense_report = await self._reports.build_period_report(
+            kind,
+            now=report_now,
+            scope=scope,
+        )
         income_total = await self._cashflow.total_income(
             expense_report.period.start_at,
             expense_report.period.end_at,
+            scope=scope,
         )
         income_rows = await self._cashflow.income_by_recipient(
             expense_report.period.start_at,
             expense_report.period.end_at,
+            scope=scope,
         )
         income_category_rows = await self._cashflow.income_by_category(
             expense_report.period.start_at,
             expense_report.period.end_at,
+            scope=scope,
         )
         income_amounts = {row.role: row.amount for row in income_rows}
         budget_net_savings = None
-        if kind == PeriodKind.MONTH:
+        if kind == PeriodKind.MONTH and scope is None:
             budget = await self._limits.build_monthly_report(now=report_now)
             budget_net_savings = budget.net_savings
 
         return CashflowReport(
             period=expense_report.period,
             currency=expense_report.currency,
+            scope=scope,
             income_total=income_total,
             expense_total=expense_report.total_amount,
             net_after_expenses=income_total - expense_report.total_amount,

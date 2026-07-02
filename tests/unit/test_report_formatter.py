@@ -21,6 +21,7 @@ def test_format_period_report_rounds_amounts_to_rubles() -> None:
         ),
         total_amount=123456,
         currency="RUB",
+        scope=None,
         by_payer=(
             PayerReportLine(role="husband", amount=123456, share_percent=100.0),
             PayerReportLine(role="wife", amount=0, share_percent=0.0),
@@ -55,6 +56,7 @@ def test_format_empty_period_report() -> None:
         ),
         total_amount=0,
         currency="RUB",
+        scope=None,
         by_payer=(
             PayerReportLine(role="husband", amount=0, share_percent=0.0),
             PayerReportLine(role="wife", amount=0, share_percent=0.0),

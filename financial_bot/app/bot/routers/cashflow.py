@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_bot.app.bot.formatters.cashflow import format_cashflow_report
 from financial_bot.app.config import Settings
+from financial_bot.app.domain.accounting_scope import extract_scope_filter
 from financial_bot.app.domain.periods import PeriodKind, parse_period_kind
+from financial_bot.app.domain.types import TransactionScope
 from financial_bot.app.services.cashflow_service import CashflowService
 from financial_bot.app.services.chart_service import ChartService
 
@@ -30,21 +32,25 @@ async def cashflow_command(
     session: AsyncSession,
     settings: Settings,
 ) -> None:
-    kind = _period_kind_from_command_payload(message)
+    kind, scope = _period_payload_from_command(message)
     if kind is None:
         await message.answer("Период: week/month/quarter/halfyear/year или неделя/месяц/год.")
         return
-    await _answer_cashflow_report(message, session, settings, kind)
+    await _answer_cashflow_report(message, session, settings, kind, scope)
 
 
-@router.message(F.text.func(lambda text: _cashflow_kind_from_text_alias(text) is not None))
+@router.message(F.text.func(lambda text: _cashflow_payload_from_text_alias(text) is not None))
 async def cashflow_text_alias(
     message: Message,
     session: AsyncSession,
     settings: Settings,
 ) -> None:
-    kind = _cashflow_kind_from_text_alias(message.text or "") or PeriodKind.MONTH
-    await _answer_cashflow_report(message, session, settings, kind)
+    payload = _cashflow_payload_from_text_alias(message.text or "")
+    if payload is None:
+        await message.answer("Период: week/month/quarter/halfyear/year или неделя/месяц/год.")
+        return
+    kind, scope = payload
+    await _answer_cashflow_report(message, session, settings, kind, scope)
 
 
 async def _answer_cashflow_report(
@@ -52,10 +58,14 @@ async def _answer_cashflow_report(
     session: AsyncSession,
     settings: Settings,
     kind: PeriodKind,
+    scope: TransactionScope | None,
 ) -> None:
-    result = await ChartService(session, settings).create_cashflow_dashboard_chart(kind)
+    result = await ChartService(session, settings).create_cashflow_dashboard_chart(
+        kind,
+        scope=scope,
+    )
     if result is None:
-        report = await CashflowService(session, settings).build_report(kind)
+        report = await CashflowService(session, settings).build_report(kind, scope=scope)
         await message.answer(format_cashflow_report(report))
         return
 
@@ -65,24 +75,41 @@ async def _answer_cashflow_report(
         _unlink(result.path)
 
 
-def _period_kind_from_command_payload(message: Message) -> PeriodKind | None:
+def _period_payload_from_command(
+    message: Message,
+) -> tuple[PeriodKind | None, TransactionScope | None]:
     if message.text is None:
-        return PeriodKind.MONTH
-    parts = message.text.split(maxsplit=1)
-    if len(parts) == 1:
-        return PeriodKind.MONTH
-    return parse_period_kind(parts[1])
+        return PeriodKind.MONTH, None
+    tokens, scope = extract_scope_filter(message.text.split()[1:])
+    if not tokens:
+        return PeriodKind.MONTH, scope
+    return parse_period_kind(tokens[0]), scope
+
+
+def _cashflow_payload_from_text_alias(
+    text: str,
+) -> tuple[PeriodKind, TransactionScope | None] | None:
+    normalized = _normalize_cashflow_text(text)
+    if normalized in CASHFLOW_ALIASES:
+        return PeriodKind.MONTH, None
+    for prefix in CASHFLOW_PREFIXES:
+        if normalized.startswith(f"{prefix} "):
+            payload_text = normalized.removeprefix(prefix).strip()
+            tokens, scope = extract_scope_filter(payload_text.split())
+            if not tokens:
+                return PeriodKind.MONTH, scope
+            kind = parse_period_kind(tokens[0])
+            if kind is None:
+                return None
+            return kind, scope
+    return None
 
 
 def _cashflow_kind_from_text_alias(text: str) -> PeriodKind | None:
-    normalized = _normalize_cashflow_text(text)
-    if normalized in CASHFLOW_ALIASES:
-        return PeriodKind.MONTH
-    for prefix in CASHFLOW_PREFIXES:
-        if normalized.startswith(f"{prefix} "):
-            period_text = normalized.removeprefix(prefix).strip()
-            return parse_period_kind(period_text)
-    return None
+    payload = _cashflow_payload_from_text_alias(text)
+    if payload is None:
+        return None
+    return payload[0]
 
 
 def _normalize_cashflow_text(text: str) -> str:

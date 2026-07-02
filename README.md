@@ -355,6 +355,18 @@ Current report commands:
 - `/sheets export may`
 - `/reminders`, `/reminders on`, `/reminders off`, `/reminders time 21:00`
 
+Expense, category, payer, dashboard, cumulative, compare, trend, and cashflow reports can be
+filtered by accounting scope. Add `дом`, `салон`, or `all`/`все` to the command:
+
+- `/month salon`, `месяц салон` — visual monthly dashboard only for salon transactions
+- `/summary салон`, `итог месяца салон` — scoped smart monthly text summary
+- `/cashflow salon`, `/cashflow quarter salon` — scoped cashflow dashboard
+- `/chart categories month salon`, `/dashboard week дом`, `/trend 6m salon`
+
+Spending limits and the savings estimate stay in the all-scope family report. Scoped reports show
+their own expenses/income/cashflow and state that budget limits are calculated only in the combined
+report.
+
 XLSX and Google Sheets exports include separate sheets for expense transactions, expense category
 totals, payer totals, income transactions, income recipients, income categories, and cashflow
 summary. CSV export is a single transaction-style file with expense/correction rows plus income

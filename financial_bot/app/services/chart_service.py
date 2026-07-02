@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 
 from financial_bot.app.config import Settings
+from financial_bot.app.domain.accounting_scope import scope_filter_label
 from financial_bot.app.domain.money import format_money_minor, round_minor_to_whole_units_minor
 from financial_bot.app.domain.months import parse_month_token
 from financial_bot.app.domain.periods import (
@@ -26,8 +27,9 @@ from financial_bot.app.domain.periods import (
     resolve_month_period,
     resolve_period,
 )
+from financial_bot.app.domain.types import TransactionScope
 from financial_bot.app.services.cashflow_service import CashflowReport, CashflowService
-from financial_bot.app.services.month_report_service import MonthReportService
+from financial_bot.app.services.month_report_service import MonthReport, MonthReportService
 from financial_bot.app.services.report_service import ReportService
 from financial_bot.app.services.spending_limit_service import BudgetLimitLine, BudgetReport
 from financial_bot.app.storage.repositories.transaction_repository import TransactionRepository
@@ -87,15 +89,16 @@ class ChartService:
         kind: PeriodKind,
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> ChartResult | None:
         if kind == PeriodKind.MONTH:
-            return await self.create_month_dashboard_chart(now=now)
+            return await self.create_month_dashboard_chart(now=now, scope=scope)
 
-        report = await self._reports.build_period_report(kind, now=now)
+        report = await self._reports.build_period_report(kind, now=now, scope=scope)
         if report.total_amount <= 0:
             return None
 
-        cumulative = await self._cumulative_values(report.period)
+        cumulative = await self._cumulative_values(report.period, scope=scope)
         day_count = _elapsed_period_days(
             report.period,
             now=now,
@@ -128,7 +131,7 @@ class ChartService:
         title_ax.text(
             0,
             0.24,
-            report.period.label,
+            _period_subtitle(report.period.label, report.scope),
             fontsize=11,
             color=DASHBOARD_COLORS["muted"],
         )
@@ -173,7 +176,7 @@ class ChartService:
 
         return _save_figure(
             fig,
-            f"Дашборд за {report.period.label}",
+            _caption_with_scope(f"Дашборд за {report.period.label}", report.scope),
             temp_dir=self._chart_temp_dir,
             tight_layout=False,
         )
@@ -182,11 +185,13 @@ class ChartService:
         self,
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> ChartResult | None:
         report = await self._month_reports.build_month_report(
             now=now,
             top_category_limit=7,
             budget_risk_limit=7,
+            scope=scope,
         )
         if report.total_amount <= 0:
             return None
@@ -215,35 +220,50 @@ class ChartService:
         title_ax.text(
             0,
             0.24,
-            f"{report.period.label} · день {report.pace.elapsed_days} из {report.pace.day_count}",
+            _period_subtitle(
+                f"{report.period.label} · день {report.pace.elapsed_days} из "
+                f"{report.pace.day_count}",
+                report.scope,
+            ),
             fontsize=11,
             color=DASHBOARD_COLORS["muted"],
         )
 
-        metrics = (
-            ("Потрачено", report.total_amount, DASHBOARD_COLORS["blue"]),
-            ("Прогноз месяца", report.pace.forecast_amount, DASHBOARD_COLORS["amber"]),
-            ("Копилка по лимитам", budget.net_savings, _savings_color(budget.net_savings)),
-        )
+        metrics = _month_dashboard_metrics(report)
         for index, (label, value, color) in enumerate(metrics):
             ax = fig.add_subplot(grid[1, index * 2 : index * 2 + 2])
-            _draw_metric_panel(ax, label=label, value=value, currency=report.currency, color=color)
+            if isinstance(value, int):
+                _draw_metric_panel(
+                    ax,
+                    label=label,
+                    value=value,
+                    currency=report.currency,
+                    color=color,
+                )
+            else:
+                _draw_text_metric_panel(ax, label=label, value=value, color=color)
 
         category_ax = fig.add_subplot(grid[2, :3])
         _draw_top_categories(category_ax, report.top_categories, report.currency)
 
         budget_ax = fig.add_subplot(grid[2, 3:])
-        _draw_budget_risks(budget_ax, report.budget_risks)
+        if report.scope is None:
+            _draw_budget_risks(budget_ax, report.budget_risks)
+        else:
+            _draw_scope_budget_note(budget_ax, report.scope)
 
         payer_ax = fig.add_subplot(grid[3, :3])
         _draw_payer_split(payer_ax, report.by_payer, report.currency)
 
         note_ax = fig.add_subplot(grid[3, 3:])
-        _draw_budget_note(note_ax, budget)
+        if report.scope is None:
+            _draw_budget_note(note_ax, budget)
+        else:
+            _draw_payer_report_summary(note_ax, report.by_payer, report.currency)
 
         return _save_figure(
             fig,
-            f"Дашборд за {report.period.label}",
+            _caption_with_scope(f"Дашборд за {report.period.label}", report.scope),
             temp_dir=self._chart_temp_dir,
             tight_layout=False,
         )
@@ -253,8 +273,9 @@ class ChartService:
         kind: PeriodKind = PeriodKind.MONTH,
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> ChartResult | None:
-        report = await self._cashflow.build_report(kind, now=now)
+        report = await self._cashflow.build_report(kind, now=now, scope=scope)
         if report.income_total <= 0 and report.expense_total <= 0:
             return None
 
@@ -280,7 +301,7 @@ class ChartService:
         title_ax.text(
             0,
             0.24,
-            report.period.label,
+            _period_subtitle(report.period.label, report.scope),
             fontsize=11,
             color=DASHBOARD_COLORS["muted"],
         )
@@ -326,7 +347,7 @@ class ChartService:
 
         return _save_figure(
             fig,
-            f"Денежный поток за {report.period.label}",
+            _caption_with_scope(f"Денежный поток за {report.period.label}", report.scope),
             temp_dir=self._chart_temp_dir,
             tight_layout=False,
         )
@@ -336,8 +357,9 @@ class ChartService:
         kind: PeriodKind = PeriodKind.MONTH,
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> ChartResult | None:
-        report = await self._reports.build_period_report(kind, now=now)
+        report = await self._reports.build_period_report(kind, now=now, scope=scope)
         if report.total_amount <= 0:
             return None
 
@@ -360,7 +382,13 @@ class ChartService:
             fontweight="bold",
             color=DASHBOARD_COLORS["ink"],
         )
-        title_ax.text(0, 0.24, report.period.label, fontsize=11, color=DASHBOARD_COLORS["muted"])
+        title_ax.text(
+            0,
+            0.24,
+            _period_subtitle(report.period.label, report.scope),
+            fontsize=11,
+            color=DASHBOARD_COLORS["muted"],
+        )
 
         payer_amounts = {line.role: line.amount for line in report.by_payer}
         metrics = (
@@ -380,7 +408,7 @@ class ChartService:
 
         return _save_figure(
             fig,
-            f"Кто платил за {report.period.label}",
+            _caption_with_scope(f"Кто платил за {report.period.label}", report.scope),
             temp_dir=self._chart_temp_dir,
             tight_layout=False,
         )
@@ -390,8 +418,9 @@ class ChartService:
         kind: PeriodKind = PeriodKind.MONTH,
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> ChartResult | None:
-        report = await self._reports.build_period_report(kind, now=now)
+        report = await self._reports.build_period_report(kind, now=now, scope=scope)
         if report.total_amount <= 0 or not report.by_category:
             return None
 
@@ -435,7 +464,8 @@ class ChartService:
         ax.text(
             0,
             1.015,
-            f"{report.period.label} · всего {_format_rub_value(_rub(report.total_amount))}",
+            f"{_period_subtitle(report.period.label, report.scope)} · всего "
+            f"{_format_rub_value(_rub(report.total_amount))}",
             transform=ax.transAxes,
             fontsize=10,
             color=DASHBOARD_COLORS["muted"],
@@ -449,7 +479,7 @@ class ChartService:
         _format_number_axis(ax)
         return _save_figure(
             fig,
-            f"Категории за {report.period.label}",
+            _caption_with_scope(f"Категории за {report.period.label}", report.scope),
             temp_dir=self._chart_temp_dir,
         )
 
@@ -457,23 +487,27 @@ class ChartService:
         self,
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> ChartResult | None:
         period = resolve_period(PeriodKind.MONTH, now=now, timezone=self._settings.timezone)
-        cumulative = await self._cumulative_values(period)
+        cumulative = await self._cumulative_values(period, scope=scope)
         if not cumulative or cumulative[-1] <= 0:
             return None
 
         days = list(range(1, len(cumulative) + 1))
         fig, ax = _create_dark_axes(figsize=(10, 5))
         ax.plot(days, cumulative, linewidth=2.5, color="#059669")
-        ax.set_title(f"Накопительные расходы: {period.label}", color=DASHBOARD_COLORS["ink"])
+        ax.set_title(
+            f"Накопительные расходы: {_period_subtitle(period.label, scope)}",
+            color=DASHBOARD_COLORS["ink"],
+        )
         ax.set_xlabel("День месяца", color=DASHBOARD_COLORS["muted"])
         ax.set_ylabel("₽", color=DASHBOARD_COLORS["muted"])
         ax.grid(alpha=0.42, color=DASHBOARD_COLORS["grid"])
         _format_number_axis(ax, axis="y")
         return _save_figure(
             fig,
-            f"Накопительные расходы за {period.label}",
+            _caption_with_scope(f"Накопительные расходы за {period.label}", scope),
             temp_dir=self._chart_temp_dir,
         )
 
@@ -482,6 +516,7 @@ class ChartService:
         month_tokens: Sequence[str],
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> ChartResult | None:
         if not month_tokens:
             msg = "At least one month is required"
@@ -496,14 +531,19 @@ class ChartService:
             )
             for token in month_tokens
         ]
-        series = [(period, await self._cumulative_values(period)) for period in periods]
+        series = [
+            (period, await self._cumulative_values(period, scope=scope)) for period in periods
+        ]
         if not any(values and values[-1] > 0 for _, values in series):
             return None
 
         fig, ax = _create_dark_axes(figsize=(10, 5))
         for period, values in series:
             ax.plot(range(1, len(values) + 1), values, linewidth=2, label=period.label)
-        ax.set_title("Наложение месяцев", color=DASHBOARD_COLORS["ink"])
+        ax.set_title(
+            _caption_with_scope("Наложение месяцев", scope),
+            color=DASHBOARD_COLORS["ink"],
+        )
         ax.set_xlabel("День месяца", color=DASHBOARD_COLORS["muted"])
         ax.set_ylabel("₽", color=DASHBOARD_COLORS["muted"])
         ax.grid(alpha=0.42, color=DASHBOARD_COLORS["grid"])
@@ -514,13 +554,18 @@ class ChartService:
         for text in legend.get_texts():
             text.set_color(DASHBOARD_COLORS["ink"])
         _format_number_axis(ax, axis="y")
-        return _save_figure(fig, "Сравнение месяцев", temp_dir=self._chart_temp_dir)
+        return _save_figure(
+            fig,
+            _caption_with_scope("Сравнение месяцев", scope),
+            temp_dir=self._chart_temp_dir,
+        )
 
     async def create_trend_chart(
         self,
         month_count: int,
         *,
         now: datetime | None = None,
+        scope: TransactionScope | None = None,
     ) -> ChartResult | None:
         if month_count <= 0 or month_count > 24:
             msg = "Trend month count must be in 1..24"
@@ -536,7 +581,11 @@ class ChartService:
             )
         ]
         reports = [
-            await self._reports.build_period_report(PeriodKind.MONTH, now=period.start_at)
+            await self._reports.build_period_report(
+                PeriodKind.MONTH,
+                now=period.start_at,
+                scope=scope,
+            )
             for period in periods
         ]
         values = [_rub(report.total_amount) for report in reports]
@@ -548,18 +597,31 @@ class ChartService:
         ]
         fig, ax = _create_dark_axes(figsize=(max(8, month_count * 0.7), 5))
         ax.bar(labels, values, color="#7c3aed")
-        ax.set_title(f"Тренд расходов за {month_count} мес.", color=DASHBOARD_COLORS["ink"])
+        ax.set_title(
+            _caption_with_scope(f"Тренд расходов за {month_count} мес.", scope),
+            color=DASHBOARD_COLORS["ink"],
+        )
         ax.set_ylabel("₽", color=DASHBOARD_COLORS["muted"])
         ax.grid(axis="y", alpha=0.42, color=DASHBOARD_COLORS["grid"])
         ax.tick_params(axis="x", rotation=35, colors=DASHBOARD_COLORS["muted"])
         _format_number_axis(ax, axis="y")
-        return _save_figure(fig, f"Тренд за {month_count} мес.", temp_dir=self._chart_temp_dir)
+        return _save_figure(
+            fig,
+            _caption_with_scope(f"Тренд за {month_count} мес.", scope),
+            temp_dir=self._chart_temp_dir,
+        )
 
-    async def _cumulative_values(self, period: Period) -> list[float]:
+    async def _cumulative_values(
+        self,
+        period: Period,
+        *,
+        scope: TransactionScope | None = None,
+    ) -> list[float]:
         timezone = ZoneInfo(self._settings.timezone)
         transactions = await self._transactions.list_report_effective_for_period(
             period.start_at,
             period.end_at,
+            scope=scope,
         )
         day_count = (period.end_at.date() - period.start_at.date()).days
         amounts_by_day = {day: 0 for day in range(1, day_count + 1)}
@@ -610,6 +672,36 @@ def _create_dark_axes(*, figsize: tuple[float, float]):
     for spine in ax.spines.values():
         spine.set_color(DASHBOARD_COLORS["line"])
     return fig, ax
+
+
+def _month_dashboard_metrics(report: MonthReport) -> tuple[tuple[str, int | str, str], ...]:
+    if report.scope is not None:
+        return (
+            ("Потрачено", report.total_amount, DASHBOARD_COLORS["blue"]),
+            ("Прогноз месяца", report.pace.forecast_amount, DASHBOARD_COLORS["amber"]),
+            ("Категорий", str(len(report.top_categories)), DASHBOARD_COLORS["violet"]),
+        )
+    return (
+        ("Потрачено", report.total_amount, DASHBOARD_COLORS["blue"]),
+        ("Прогноз месяца", report.pace.forecast_amount, DASHBOARD_COLORS["amber"]),
+        (
+            "Копилка по лимитам",
+            report.budget.net_savings,
+            _savings_color(report.budget.net_savings),
+        ),
+    )
+
+
+def _period_subtitle(label: str, scope: TransactionScope | None) -> str:
+    if scope is None:
+        return label
+    return f"{label} · {scope_filter_label(scope)}"
+
+
+def _caption_with_scope(caption: str, scope: TransactionScope | None) -> str:
+    if scope is None:
+        return caption
+    return f"{caption} · {scope_filter_label(scope)}"
 
 
 def _draw_metric_panel(ax, *, label: str, value: int, currency: str, color: str) -> None:
@@ -748,6 +840,54 @@ def _draw_budget_risks(ax, risk_lines: Sequence[BudgetLimitLine]) -> None:
     ax.tick_params(axis="y", labelsize=8.5, colors=DASHBOARD_COLORS["ink"])
     ax.tick_params(axis="x", labelsize=8, colors=DASHBOARD_COLORS["muted"])
     ax.grid(axis="x", alpha=0.42, color=DASHBOARD_COLORS["grid"])
+
+
+def _draw_scope_budget_note(ax, scope: TransactionScope) -> None:
+    _style_panel(ax)
+    ax.set_title(
+        "Контур отчёта",
+        loc="left",
+        fontsize=13,
+        fontweight="bold",
+        pad=14,
+        color=DASHBOARD_COLORS["ink"],
+    )
+    rows = [
+        ("Показан контур", scope_filter_label(scope), DASHBOARD_COLORS["cyan"]),
+        ("Лимиты", "в общем отчёте", DASHBOARD_COLORS["muted"]),
+        ("Копилка", "в общем отчёте", DASHBOARD_COLORS["muted"]),
+    ]
+    y = 0.72
+    for label, value, color in rows:
+        ax.text(
+            0.06,
+            y,
+            label,
+            transform=ax.transAxes,
+            fontsize=10,
+            color=DASHBOARD_COLORS["muted"],
+        )
+        ax.text(
+            0.94,
+            y,
+            value,
+            transform=ax.transAxes,
+            fontsize=12,
+            fontweight="bold",
+            color=color,
+            ha="right",
+        )
+        y -= 0.22
+    ax.text(
+        0.06,
+        0.08,
+        "Бюджетные лимиты не дробятся между контурами.",
+        transform=ax.transAxes,
+        fontsize=9,
+        color=DASHBOARD_COLORS["muted"],
+    )
+    ax.set_xticks([])
+    ax.set_yticks([])
 
 
 def _draw_payer_split(ax, payer_lines, currency: str) -> None:
@@ -1006,7 +1146,9 @@ def _draw_cashflow_note(ax, report: CashflowReport) -> None:
         ax.text(
             0.06, y, label, transform=ax.transAxes, fontsize=10, color=DASHBOARD_COLORS["muted"]
         )
-        if isinstance(value, int) and label == "Категорий дохода":
+        if report.scope is not None and label == "Копилка по лимитам":
+            text_value = "В общем отчёте"
+        elif isinstance(value, int) and label == "Категорий дохода":
             text_value = str(value)
         elif isinstance(value, int):
             text_value = _format_dashboard_money(value, report.currency)

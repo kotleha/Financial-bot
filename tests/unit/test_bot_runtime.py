@@ -65,15 +65,21 @@ from financial_bot.app.bot.routers.auto_accounting_health import (
 )
 from financial_bot.app.bot.routers.bank_events import _command_payload, _is_pending_command_payload
 from financial_bot.app.bot.routers.bank_learning import BANK_LEARNING_RULES_ALIASES
-from financial_bot.app.bot.routers.cashflow import CASHFLOW_ALIASES, _cashflow_kind_from_text_alias
+from financial_bot.app.bot.routers.cashflow import (
+    CASHFLOW_ALIASES,
+    _cashflow_kind_from_text_alias,
+    _cashflow_payload_from_text_alias,
+)
 from financial_bot.app.bot.routers.category_settings import CATEGORY_SETTINGS_ALIASES
 from financial_bot.app.bot.routers.charts import (
     CATEGORY_CHART_MENU_ALIASES,
     COMPARE_MENU_ALIASES,
     DASHBOARD_MENU_ALIASES,
     TREND_MENU_ALIASES,
+    _category_chart_menu_payload,
     _category_chart_period_from_menu_text,
     _category_chart_period_from_tokens,
+    _dashboard_scope_from_menu_text,
     _default_compare_month_tokens,
     _empty_chart_message,
 )
@@ -88,12 +94,14 @@ from financial_bot.app.bot.routers.reports import (
     MONTH_REPORT_ALIASES,
     PAYER_REPORT_ALIASES,
     PERIOD_REPORT_ALIASES,
+    _month_scope_from_text_alias,
     _period_kind_from_text_alias,
+    _period_text_payload,
 )
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.periods import PeriodKind
 from financial_bot.app.domain.spending_limits import LimitRuleKind
-from financial_bot.app.domain.types import BankCategoryRuleMode
+from financial_bot.app.domain.types import BankCategoryRuleMode, TransactionScope
 from financial_bot.app.services.bank_learning_rule_service import BankLearningRuleLine
 from financial_bot.app.services.category_settings_service import CategorySettingsLine
 from financial_bot.app.services.spending_limit_service import LimitOverviewLine
@@ -198,6 +206,14 @@ def test_category_chart_period_aliases() -> None:
     assert _category_chart_period_from_menu_text("категории") == PeriodKind.MONTH
     assert _category_chart_period_from_menu_text("📊 Категории: неделя") == PeriodKind.WEEK
     assert _category_chart_period_from_menu_text("📊 Категории: квартал") == PeriodKind.QUARTER
+    assert _category_chart_menu_payload("категории салон") == (
+        PeriodKind.MONTH,
+        TransactionScope.SALON,
+    )
+    assert _category_chart_menu_payload("дом 📊 категории: неделя") == (
+        PeriodKind.WEEK,
+        TransactionScope.HOUSEHOLD,
+    )
     assert _category_chart_period_from_tokens(["categories", "year"]) == PeriodKind.YEAR
     assert _category_chart_period_from_tokens(["полгода"]) == PeriodKind.HALFYEAR
     assert _category_chart_period_from_tokens([]) == PeriodKind.MONTH
@@ -209,6 +225,8 @@ def test_dashboard_menu_aliases() -> None:
     assert "📊 дашборд месяца" in DASHBOARD_MENU_ALIASES
     assert "dashboard" in DASHBOARD_MENU_ALIASES
     assert "статус" in DASHBOARD_MENU_ALIASES
+    assert _dashboard_scope_from_menu_text("дашборд салон") == TransactionScope.SALON
+    assert _dashboard_scope_from_menu_text("дом статус") == TransactionScope.HOUSEHOLD
 
 
 def test_compare_and_trend_menu_aliases() -> None:
@@ -231,6 +249,9 @@ def test_period_report_aliases() -> None:
     assert PERIOD_REPORT_ALIASES["📄 год"] == PeriodKind.YEAR
     assert PERIOD_REPORT_ALIASES["📄 отчёт: год"] == PeriodKind.YEAR
     assert _period_kind_from_text_alias("полгода") == PeriodKind.HALFYEAR
+    assert _period_text_payload("месяц салон") == (PeriodKind.MONTH, TransactionScope.SALON)
+    assert _period_text_payload("дом неделя") == (PeriodKind.WEEK, TransactionScope.HOUSEHOLD)
+    assert _month_scope_from_text_alias("итог месяца салон") == TransactionScope.SALON
 
 
 def test_payer_report_aliases_do_not_include_legacy_category_owner_words() -> None:
@@ -246,6 +267,14 @@ def test_cashflow_aliases() -> None:
     assert _cashflow_kind_from_text_alias("💸 Денежный поток") == PeriodKind.MONTH
     assert _cashflow_kind_from_text_alias("денежный поток неделя") == PeriodKind.WEEK
     assert _cashflow_kind_from_text_alias("cashflow year") == PeriodKind.YEAR
+    assert _cashflow_payload_from_text_alias("cashflow salon") == (
+        PeriodKind.MONTH,
+        TransactionScope.SALON,
+    )
+    assert _cashflow_payload_from_text_alias("денежный поток квартал дом") == (
+        PeriodKind.QUARTER,
+        TransactionScope.HOUSEHOLD,
+    )
     assert _cashflow_kind_from_text_alias("доход") is None
 
 

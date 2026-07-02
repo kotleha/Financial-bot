@@ -1,3 +1,4 @@
+from financial_bot.app.domain.accounting_scope import scope_filter_label
 from financial_bot.app.domain.money import format_money_minor, round_minor_to_whole_units_minor
 from financial_bot.app.domain.types import UserRole
 from financial_bot.app.services.month_report_service import MonthReport
@@ -13,7 +14,11 @@ ROLE_LABELS = {
 
 
 def format_month_report(report: MonthReport) -> str:
-    lines = [f"Итог месяца: {report.period.label}", ""]
+    lines = [
+        f"Итог месяца: {report.period.label}",
+        f"Контур: {scope_filter_label(report.scope)}",
+        "",
+    ]
 
     if not report.has_activity:
         lines.extend(
@@ -72,7 +77,15 @@ def format_month_report(report: MonthReport) -> str:
                 f"{_money(report.other_income_categories_amount, report.currency)}"
             )
 
-    if report.has_expenses:
+    if report.scope is not None:
+        lines.extend(
+            [
+                "",
+                "Лимиты и резерв",
+                "Лимиты считаются в общем отчёте по всем контурам.",
+            ]
+        )
+    elif report.has_expenses:
         lines.extend(["", "Лимиты и резерв"])
         lines.append(f"Свободно в лимитах: {_money(report.under_budget_pool, report.currency)}")
         lines.append(f"Превышения: {_money(report.overrun_total, report.currency)}")
@@ -80,18 +93,18 @@ def format_month_report(report: MonthReport) -> str:
     else:
         lines.extend(["", "Лимиты и резерв", "Расходов пока нет, оценка резерва появится позже."])
 
-    if report.has_expenses and report.budget_risks:
+    if report.scope is None and report.has_expenses and report.budget_risks:
         lines.extend(["", "Под вниманием"])
         lines.extend(_format_budget_risk(line, report.currency) for line in report.budget_risks)
 
-    if report.has_expenses and report.no_limit_lines:
+    if report.scope is None and report.has_expenses and report.no_limit_lines:
         lines.extend(["", "Без лимита"])
         lines.extend(
             f"{line.title} — {_money(line.spent_amount, report.currency)}"
             for line in report.no_limit_lines
         )
 
-    if report.has_expenses and report.savings_target_lines:
+    if report.scope is None and report.has_expenses and report.savings_target_lines:
         lines.extend(["", "Накопления"])
         lines.extend(
             _format_savings_target(line, report.currency) for line in report.savings_target_lines
@@ -161,7 +174,9 @@ def _format_plain_summary(report: MonthReport) -> str:
     else:
         cashflow_part = "расходы ещё не внесены"
 
-    if not report.has_expenses:
+    if report.scope is not None:
+        budget_part = "лимиты и копилка считаются только в общем отчёте"
+    elif not report.has_expenses:
         budget_part = "лимитный резерв появится после первых расходов"
     elif report.overrun_total > 0:
         budget_part = (

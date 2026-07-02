@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from financial_bot.app.domain.types import TransactionType
+from financial_bot.app.domain.types import TransactionScope, TransactionType
 from financial_bot.app.storage.models import TransactionModel
 
 
@@ -39,13 +39,23 @@ class TransactionRepository:
         )
         return list(result.scalars())
 
-    async def list_for_period(self, start_at: datetime, end_at: datetime) -> list[TransactionModel]:
-        result = await self._session.execute(
+    async def list_for_period(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+        *,
+        scope: TransactionScope | None = None,
+    ) -> list[TransactionModel]:
+        statement = (
             select(TransactionModel)
             .where(TransactionModel.occurred_at >= start_at)
             .where(TransactionModel.occurred_at < end_at)
             .where(TransactionModel.deleted_at.is_(None))
-            .order_by(TransactionModel.occurred_at, TransactionModel.id)
+        )
+        if scope is not None:
+            statement = statement.where(TransactionModel.scope == scope.value)
+        result = await self._session.execute(
+            statement.order_by(TransactionModel.occurred_at, TransactionModel.id)
         )
         return list(result.scalars())
 
@@ -53,15 +63,21 @@ class TransactionRepository:
         self,
         start_at: datetime,
         end_at: datetime,
+        *,
+        scope: TransactionScope | None = None,
     ) -> list[TransactionModel]:
-        result = await self._session.execute(
+        statement = (
             select(TransactionModel)
             .where(TransactionModel.type == TransactionType.EXPENSE.value)
             .where(TransactionModel.included_in_reports.is_(True))
             .where(TransactionModel.deleted_at.is_(None))
             .where(TransactionModel.occurred_at >= start_at)
             .where(TransactionModel.occurred_at < end_at)
-            .order_by(TransactionModel.occurred_at, TransactionModel.id)
+        )
+        if scope is not None:
+            statement = statement.where(TransactionModel.scope == scope.value)
+        result = await self._session.execute(
+            statement.order_by(TransactionModel.occurred_at, TransactionModel.id)
         )
         return list(result.scalars())
 
@@ -69,8 +85,10 @@ class TransactionRepository:
         self,
         start_at: datetime,
         end_at: datetime,
+        *,
+        scope: TransactionScope | None = None,
     ) -> list[TransactionModel]:
-        result = await self._session.execute(
+        statement = (
             select(TransactionModel)
             .where(
                 TransactionModel.type.in_(
@@ -81,7 +99,11 @@ class TransactionRepository:
             .where(TransactionModel.deleted_at.is_(None))
             .where(TransactionModel.occurred_at >= start_at)
             .where(TransactionModel.occurred_at < end_at)
-            .order_by(TransactionModel.occurred_at, TransactionModel.id)
+        )
+        if scope is not None:
+            statement = statement.where(TransactionModel.scope == scope.value)
+        result = await self._session.execute(
+            statement.order_by(TransactionModel.occurred_at, TransactionModel.id)
         )
         return list(result.scalars())
 

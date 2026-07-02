@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 from financial_bot.app.config import Settings
 from financial_bot.app.domain.periods import PeriodKind
+from financial_bot.app.domain.types import TransactionScope
 from financial_bot.app.services.report_service import ReportService
 from financial_bot.app.services.seed_service import seed_initial_data
 from financial_bot.app.services.transaction_service import TransactionService
@@ -158,6 +159,74 @@ async def test_month_report_excludes_internal_transfers_deleted_and_outside_peri
         "groceries": 70000,
         "restaurants_cafes": 200000,
     }
+
+
+@pytest.mark.asyncio
+async def test_month_report_can_be_filtered_by_accounting_scope(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+    timezone = ZoneInfo(settings.timezone)
+    report_now = datetime(2026, 6, 20, 12, tzinfo=timezone)
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        transactions = TransactionService(session, settings)
+        categories = await transactions.list_category_options()
+        groceries = next(category for category in categories if category.code == "groceries")
+        restaurants = next(
+            category for category in categories if category.code == "restaurants_cafes"
+        )
+
+        household = await transactions.create_from_category_selection(
+            amount=10_000_00,
+            category_id=groceries.id,
+            payer_telegram_id=1001,
+            raw_text="дом 10000 продукты",
+            scope=TransactionScope.HOUSEHOLD,
+        )
+        salon = await transactions.create_from_category_selection(
+            amount=20_000_00,
+            category_id=restaurants.id,
+            payer_telegram_id=1002,
+            raw_text="салон 20000 кафе",
+            scope=TransactionScope.SALON,
+        )
+        salon_refund = await transactions.create_correction_from_category_selection(
+            amount=5_000_00,
+            category_id=restaurants.id,
+            payer_telegram_id=1002,
+            raw_text="bank_refund_event:salon",
+            scope=TransactionScope.SALON,
+        )
+        for index, transaction in enumerate((household, salon, salon_refund), start=1):
+            await transactions.update_transaction(
+                transaction_id=transaction.id,
+                changed_by_telegram_id=1001,
+                occurred_at=datetime(2026, 6, index, 12, tzinfo=timezone),
+            )
+
+        all_report = await ReportService(session, settings).build_period_report(
+            PeriodKind.MONTH,
+            now=report_now,
+        )
+        salon_report = await ReportService(session, settings).build_period_report(
+            PeriodKind.MONTH,
+            now=report_now,
+            scope=TransactionScope.SALON,
+        )
+        await session.commit()
+
+    assert all_report.total_amount == 25_000_00
+    assert salon_report.scope == TransactionScope.SALON
+    assert salon_report.total_amount == 15_000_00
+    assert [(line.role, line.amount, line.share_percent) for line in salon_report.by_payer] == [
+        ("husband", 0, 0.0),
+        ("wife", 15_000_00, 100.0),
+    ]
+    assert [(line.code, line.amount) for line in salon_report.by_category] == [
+        ("restaurants_cafes", 15_000_00)
+    ]
 
 
 @pytest.mark.asyncio

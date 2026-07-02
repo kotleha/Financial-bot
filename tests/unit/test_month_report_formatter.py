@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from financial_bot.app.bot.formatters.month_reports import format_month_report
 from financial_bot.app.domain.periods import Period, PeriodKind
+from financial_bot.app.domain.types import TransactionScope
 from financial_bot.app.services.cashflow_service import IncomeCategoryLine, IncomeRecipientLine
 from financial_bot.app.services.month_report_service import MonthPace, MonthReport
 from financial_bot.app.services.report_service import CategoryReportLine, PayerReportLine
@@ -82,12 +83,25 @@ def test_format_income_only_month_report_does_not_show_expense_forecast() -> Non
     assert "999 999 ₽" not in formatted
 
 
+def test_format_scoped_month_report_hides_budget_math() -> None:
+    report = _sample_month_report(scope=TransactionScope.SALON)
+
+    formatted = format_month_report(report)
+
+    assert "Контур: Салон" in formatted
+    assert "Лимиты считаются в общем отчёте по всем контурам." in formatted
+    assert "Нужно компенсировать перерасход" not in formatted
+    assert "Под вниманием" not in formatted
+    assert "Накопления" not in formatted
+
+
 def _sample_month_report(
     *,
     total_amount: int = 52_324_400,
     income_total: int = 60_000_000,
     top_categories: tuple[CategoryReportLine, ...] | None = None,
     other_amount: int = 7_200_000,
+    scope: TransactionScope | None = None,
 ) -> MonthReport:
     timezone = ZoneInfo("Asia/Barnaul")
     period = Period(
@@ -121,6 +135,7 @@ def _sample_month_report(
     return MonthReport(
         period=period,
         currency="RUB",
+        scope=scope,
         total_amount=total_amount,
         income_total=income_total,
         net_after_expenses=income_total - total_amount,
