@@ -46,6 +46,11 @@ from financial_bot.app.bot.keyboards.category_settings import (
     build_category_settings_keyboard,
 )
 from financial_bot.app.bot.keyboards.main_menu import MAIN_MENU_ROWS, build_main_menu
+from financial_bot.app.bot.keyboards.month_close import (
+    MonthCloseAction,
+    MonthCloseActionCallback,
+    build_month_close_actions_keyboard,
+)
 from financial_bot.app.bot.keyboards.reports_menu import REPORTS_MENU_ROWS, build_reports_menu
 from financial_bot.app.bot.keyboards.settings_menu import SETTINGS_MENU_ROWS, build_settings_menu
 from financial_bot.app.bot.keyboards.spending_limits import (
@@ -92,6 +97,7 @@ from financial_bot.app.bot.routers.income_entry import (
     _looks_like_bank_notification,
     _manual_income_raw_text,
 )
+from financial_bot.app.bot.routers.month_close import MONTH_CLOSE_ALIASES
 from financial_bot.app.bot.routers.reports import (
     MONTH_REPORT_ALIASES,
     PAYER_REPORT_ALIASES,
@@ -162,7 +168,8 @@ def test_reports_menu_contains_expected_buttons() -> None:
 
     assert button_texts == [list(row) for row in REPORTS_MENU_ROWS]
     assert button_texts[0] == ["🧾 Итог месяца", "📊 Месяц"]
-    assert button_texts[1] == ["📊 Неделя", "📊 Квартал"]
+    assert ["✅ Закрыть месяц"] in button_texts
+    assert ["📊 Неделя", "📊 Квартал"] in button_texts
     assert ["📈 Категории", "👥 Кто платил"] in button_texts
     assert ["💸 Денежный поток", "📉 Динамика месяца"] in button_texts
     assert ["📆 Сравнить", "📈 Тренд"] in button_texts
@@ -260,6 +267,26 @@ def test_period_report_aliases() -> None:
     assert _period_text_payload("месяц салон") == (PeriodKind.MONTH, TransactionScope.SALON)
     assert _period_text_payload("дом неделя") == (PeriodKind.WEEK, TransactionScope.HOUSEHOLD)
     assert _month_scope_from_text_alias("итог месяца салон") == TransactionScope.SALON
+
+
+def test_month_close_aliases_and_keyboard() -> None:
+    assert "✅ закрыть месяц" in MONTH_CLOSE_ALIASES
+    assert "закрытие месяца" in MONTH_CLOSE_ALIASES
+
+    keyboard = build_month_close_actions_keyboard()
+    button_texts = [button.text for row in keyboard.inline_keyboard for button in row]
+    callbacks = [
+        MonthCloseActionCallback.unpack(button.callback_data)
+        for row in keyboard.inline_keyboard
+        for button in row
+    ]
+
+    assert button_texts == ["📊 Дашборд месяца", "🏦 Операции банка", "🧾 Итог месяца"]
+    assert [callback.action for callback in callbacks] == [
+        MonthCloseAction.DASHBOARD,
+        MonthCloseAction.BANK_PENDING,
+        MonthCloseAction.SUMMARY,
+    ]
 
 
 def test_payer_report_aliases_do_not_include_legacy_category_owner_words() -> None:

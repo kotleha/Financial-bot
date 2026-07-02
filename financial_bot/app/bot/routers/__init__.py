@@ -15,6 +15,7 @@ from financial_bot.app.bot.routers.exports import router as exports_router
 from financial_bot.app.bot.routers.google_sheets import router as google_sheets_router
 from financial_bot.app.bot.routers.income_entry import router as income_entry_router
 from financial_bot.app.bot.routers.menu import router as menu_router
+from financial_bot.app.bot.routers.month_close import router as month_close_router
 from financial_bot.app.bot.routers.reminders import router as reminders_router
 from financial_bot.app.bot.routers.reports import router as reports_router
 from financial_bot.app.bot.routers.spending_limits import router as spending_limits_router
@@ -29,6 +30,7 @@ def get_routers() -> tuple[Router, ...]:
         auto_accounting_health_router,
         category_settings_router,
         cashflow_router,
+        month_close_router,
         reports_router,
         charts_router,
         spending_limits_router,

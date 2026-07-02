@@ -4,6 +4,7 @@ from financial_bot.app.bot.keyboards.menu_builder import build_reply_menu
 
 REPORTS_MENU_ROWS: tuple[tuple[str, ...], ...] = (
     ("🧾 Итог месяца", "📊 Месяц"),
+    ("✅ Закрыть месяц",),
     ("📊 Неделя", "📊 Квартал"),
     ("📊 Полгода", "📊 Год"),
     ("📈 Категории", "👥 Кто платил"),
