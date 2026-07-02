@@ -74,11 +74,13 @@ from financial_bot.app.bot.routers.category_settings import CATEGORY_SETTINGS_AL
 from financial_bot.app.bot.routers.charts import (
     CATEGORY_CHART_MENU_ALIASES,
     COMPARE_MENU_ALIASES,
+    CUMULATIVE_MENU_ALIASES,
     DASHBOARD_MENU_ALIASES,
     TREND_MENU_ALIASES,
     _category_chart_menu_payload,
     _category_chart_period_from_menu_text,
     _category_chart_period_from_tokens,
+    _cumulative_scope_from_menu_text,
     _dashboard_scope_from_menu_text,
     _default_compare_month_tokens,
     _empty_chart_message,
@@ -229,6 +231,12 @@ def test_dashboard_menu_aliases() -> None:
     assert _dashboard_scope_from_menu_text("дом статус") == TransactionScope.HOUSEHOLD
 
 
+def test_cumulative_menu_aliases_support_scope() -> None:
+    assert "📉 динамика" in CUMULATIVE_MENU_ALIASES
+    assert _cumulative_scope_from_menu_text("📉 Динамика салон") == TransactionScope.SALON
+    assert _cumulative_scope_from_menu_text("дом 📈 динамика месяца") == TransactionScope.HOUSEHOLD
+
+
 def test_compare_and_trend_menu_aliases() -> None:
     settings = make_settings()
 
@@ -297,9 +305,13 @@ def test_income_entry_detects_bank_notifications() -> None:
 
 def test_chart_empty_messages_are_contextual() -> None:
     assert (
-        _empty_chart_message("cashflow") == "За период нет доходов и расходов для денежного потока."
+        _empty_chart_message("cashflow")
+        == "За период нет доходов и расходов для денежного потока. Контур: Все."
     )
-    assert _empty_chart_message("categories") == "За период нет расходов для графика."
+    assert (
+        _empty_chart_message("categories", scope=TransactionScope.SALON)
+        == "За период нет расходов для графика. Контур: Салон."
+    )
 
 
 def test_add_expense_menu_text_accepts_current_and_old_button() -> None:

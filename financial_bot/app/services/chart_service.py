@@ -693,14 +693,10 @@ def _month_dashboard_metrics(report: MonthReport) -> tuple[tuple[str, int | str,
 
 
 def _period_subtitle(label: str, scope: TransactionScope | None) -> str:
-    if scope is None:
-        return label
     return f"{label} · {scope_filter_label(scope)}"
 
 
 def _caption_with_scope(caption: str, scope: TransactionScope | None) -> str:
-    if scope is None:
-        return caption
     return f"{caption} · {scope_filter_label(scope)}"
 
 
@@ -1041,7 +1037,7 @@ def _draw_income_categories(ax, report: CashflowReport) -> None:
     ax.tick_params(axis="y", labelsize=8.5, colors=DASHBOARD_COLORS["ink"])
     ax.tick_params(axis="x", labelsize=8, colors=DASHBOARD_COLORS["muted"])
     ax.grid(axis="x", alpha=0.42, color=DASHBOARD_COLORS["grid"])
-    _format_number_axis(ax)
+    _format_number_axis(ax, compact=True, max_ticks=4)
 
 
 def _draw_cashflow_summary(ax, report: CashflowReport) -> None:
@@ -1120,7 +1116,7 @@ def _draw_recipient_split(ax, report: CashflowReport) -> None:
     ax.tick_params(axis="y", labelsize=10, colors=DASHBOARD_COLORS["ink"])
     ax.tick_params(axis="x", labelsize=8, colors=DASHBOARD_COLORS["muted"])
     ax.grid(axis="x", alpha=0.42, color=DASHBOARD_COLORS["grid"])
-    _format_number_axis(ax)
+    _format_number_axis(ax, compact=True, max_ticks=4)
 
 
 def _draw_cashflow_note(ax, report: CashflowReport) -> None:

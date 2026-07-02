@@ -8,7 +8,7 @@ from aiogram.types import FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from financial_bot.app.config import Settings
-from financial_bot.app.domain.accounting_scope import extract_scope_filter
+from financial_bot.app.domain.accounting_scope import extract_scope_filter, scope_filter_label
 from financial_bot.app.domain.periods import PeriodKind, parse_period_kind
 from financial_bot.app.domain.types import TransactionScope
 from financial_bot.app.services.chart_service import ChartResult, ChartService
@@ -35,6 +35,7 @@ DASHBOARD_MENU_ALIASES = {
 }
 COMPARE_MENU_ALIASES = {"📆 сравнить", "сравнить"}
 TREND_MENU_ALIASES = {"📈 тренд", "тренд"}
+CUMULATIVE_MENU_ALIASES = {"📈 динамика месяца", "📉 динамика", "динамика месяца", "динамика"}
 _NO_SCOPE_MATCH = object()
 
 
@@ -62,7 +63,7 @@ async def chart_command(
             await _send_chart_or_empty(
                 message,
                 result,
-                empty_text=_empty_chart_message(chart_type),
+                empty_text=_empty_chart_message(chart_type, scope=scope),
             )
             return
         elif chart_type == "cumulative":
@@ -79,7 +80,11 @@ async def chart_command(
         await message.answer(f"Не смог построить график: {exc}")
         return
 
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message(chart_type))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message(chart_type, scope=scope),
+    )
 
 
 @router.message(Command("dashboard", "status"))
@@ -97,7 +102,11 @@ async def dashboard_command(
     except ValueError as exc:
         await message.answer(f"Не смог построить дашборд: {exc}")
         return
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message("dashboard"))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message("dashboard", scope=scope),
+    )
 
 
 @router.message(Command("categories"))
@@ -116,7 +125,11 @@ async def categories_command(
         period_kind,
         scope=scope,
     )
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message("categories"))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message("categories", scope=scope),
+    )
 
 
 @router.message(
@@ -129,7 +142,11 @@ async def dashboard_text_alias(
 ) -> None:
     scope = _scope_or_none(_dashboard_scope_from_menu_text(message.text or ""))
     result = await ChartService(session, settings).create_month_dashboard_chart(scope=scope)
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message("dashboard"))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message("dashboard", scope=scope),
+    )
 
 
 @router.message(F.text.func(lambda text: _category_chart_menu_payload(text) is not None))
@@ -147,20 +164,28 @@ async def categories_chart_text_alias(
         period_kind,
         scope=scope,
     )
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message("categories"))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message("categories", scope=scope),
+    )
 
 
 @router.message(
-    F.text.func(lambda text: text.strip().lower() in {"📈 динамика месяца", "📉 динамика"})
+    F.text.func(lambda text: _cumulative_scope_from_menu_text(text) is not _NO_SCOPE_MATCH)
 )
 async def cumulative_chart_text_alias(
     message: Message,
     session: AsyncSession,
     settings: Settings,
 ) -> None:
-    _, scope = _text_tokens_without_scope(message.text or "")
+    scope = _scope_or_none(_cumulative_scope_from_menu_text(message.text or ""))
     result = await ChartService(session, settings).create_cumulative_chart(scope=scope)
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message("cumulative"))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message("cumulative", scope=scope),
+    )
 
 
 @router.message(Command("compare"))
@@ -183,7 +208,11 @@ async def compare_command(
         await message.answer(f"Не смог сравнить месяцы: {exc}")
         return
 
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message("compare"))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message("compare", scope=scope),
+    )
 
 
 @router.message(
@@ -205,7 +234,11 @@ async def compare_menu_alias(
         await message.answer(f"Не смог сравнить месяцы: {exc}")
         return
 
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message("compare"))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message("compare", scope=scope),
+    )
 
 
 @router.message(Command("trend"))
@@ -225,7 +258,11 @@ async def trend_command(
         await message.answer(f"Не смог построить тренд: {exc}")
         return
 
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message("trend"))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message("trend", scope=scope),
+    )
 
 
 @router.message(F.text.func(lambda text: _trend_scope_from_menu_text(text) is not _NO_SCOPE_MATCH))
@@ -236,7 +273,11 @@ async def trend_menu_alias(
 ) -> None:
     scope = _scope_or_none(_trend_scope_from_menu_text(message.text or ""))
     result = await ChartService(session, settings).create_trend_chart(6, scope=scope)
-    await _send_chart_or_empty(message, result, empty_text=_empty_chart_message("trend"))
+    await _send_chart_or_empty(
+        message,
+        result,
+        empty_text=_empty_chart_message("trend", scope=scope),
+    )
 
 
 async def _send_chart_or_empty(
@@ -265,10 +306,12 @@ def _command_args_without_scope(message: Message) -> tuple[list[str], Transactio
     return extract_scope_filter(_command_args(message))
 
 
-def _empty_chart_message(chart_type: str) -> str:
+def _empty_chart_message(chart_type: str, scope: TransactionScope | None = None) -> str:
     if chart_type == "cashflow":
-        return "За период нет доходов и расходов для денежного потока."
-    return "За период нет расходов для графика."
+        base = "За период нет доходов и расходов для денежного потока."
+    else:
+        base = "За период нет расходов для графика."
+    return f"{base} Контур: {scope_filter_label(scope)}."
 
 
 def _category_chart_period_from_tokens(tokens: list[str]) -> PeriodKind | None:
@@ -308,6 +351,13 @@ def _compare_scope_from_menu_text(text: str) -> TransactionScope | None | object
 def _trend_scope_from_menu_text(text: str) -> TransactionScope | None | object:
     normalized, scope = _normalize_menu_text_with_scope(text)
     if normalized in TREND_MENU_ALIASES:
+        return scope
+    return _NO_SCOPE_MATCH
+
+
+def _cumulative_scope_from_menu_text(text: str) -> TransactionScope | None | object:
+    normalized, scope = _normalize_menu_text_with_scope(text)
+    if normalized in CUMULATIVE_MENU_ALIASES:
         return scope
     return _NO_SCOPE_MATCH
 

@@ -90,6 +90,8 @@ async def test_chart_service_generates_non_empty_pngs(
         ]
         await session.commit()
 
+    assert chart_results[1] is not None
+    assert chart_results[1].caption.endswith("· Все")
     for result in chart_results:
         _assert_png(result)
 
@@ -310,6 +312,20 @@ async def test_chart_service_generates_scoped_pngs(
             now=now,
             scope=TransactionScope.SALON,
         )
+        cumulative = await service.create_cumulative_chart(
+            now=now,
+            scope=TransactionScope.SALON,
+        )
+        compare = await service.create_compare_months_chart(
+            ["jun"],
+            now=now,
+            scope=TransactionScope.SALON,
+        )
+        trend = await service.create_trend_chart(
+            1,
+            now=now,
+            scope=TransactionScope.SALON,
+        )
         await session.commit()
 
     assert category_chart is not None
@@ -318,9 +334,71 @@ async def test_chart_service_generates_scoped_pngs(
     assert dashboard.caption.endswith("· Салон")
     assert cashflow is not None
     assert cashflow.caption.endswith("· Салон")
+    assert cumulative is not None
+    assert cumulative.caption.endswith("· Салон")
+    assert compare is not None
+    assert compare.caption.endswith("· Салон")
+    assert trend is not None
+    assert trend.caption.endswith("· Салон")
     _assert_png(category_chart)
     _assert_png(dashboard)
     _assert_png(cashflow)
+    _assert_png(cumulative)
+    _assert_png(compare)
+    _assert_png(trend)
+
+
+@pytest.mark.asyncio
+async def test_chart_service_scoped_time_series_ignore_other_scopes(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = make_settings()
+    timezone = ZoneInfo(settings.timezone)
+    now = datetime(2026, 6, 20, 12, tzinfo=timezone)
+
+    async with session_factory() as session:
+        await seed_initial_data(session, settings)
+        transactions = TransactionService(session, settings)
+        groceries = next(
+            category
+            for category in await transactions.list_category_options()
+            if category.code == "groceries"
+        )
+        expense = await transactions.create_from_category_selection(
+            amount=20_000_00,
+            category_id=groceries.id,
+            payer_telegram_id=1001,
+            raw_text="дом 20000 продукты",
+            scope=TransactionScope.HOUSEHOLD,
+        )
+        await transactions.update_transaction(
+            transaction_id=expense.id,
+            changed_by_telegram_id=1001,
+            occurred_at=datetime(2026, 6, 10, 12, tzinfo=timezone),
+        )
+
+        service = ChartService(session, settings)
+        all_cumulative = await service.create_cumulative_chart(now=now)
+        salon_cumulative = await service.create_cumulative_chart(
+            now=now,
+            scope=TransactionScope.SALON,
+        )
+        salon_compare = await service.create_compare_months_chart(
+            ["jun"],
+            now=now,
+            scope=TransactionScope.SALON,
+        )
+        salon_trend = await service.create_trend_chart(
+            1,
+            now=now,
+            scope=TransactionScope.SALON,
+        )
+        await session.commit()
+
+    _assert_png(all_cumulative)
+    assert salon_cumulative is None
+    assert salon_compare is None
+    assert salon_trend is None
 
 
 @pytest.mark.asyncio

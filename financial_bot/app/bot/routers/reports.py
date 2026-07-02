@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from financial_bot.app.bot.formatters.month_reports import format_month_report
 from financial_bot.app.bot.formatters.reports import format_period_report
 from financial_bot.app.config import Settings
-from financial_bot.app.domain.accounting_scope import extract_scope_filter
+from financial_bot.app.domain.accounting_scope import extract_scope_filter, scope_filter_label
 from financial_bot.app.domain.periods import PeriodKind, parse_period_kind
 from financial_bot.app.domain.types import TransactionScope
 from financial_bot.app.services.chart_service import ChartResult, ChartService
@@ -199,7 +199,7 @@ async def _answer_period_report(
         kind,
         scope=scope,
     )
-    await _send_report_chart_or_empty(message, result)
+    await _send_report_chart_or_empty(message, result, scope=scope)
 
 
 async def _answer_period_text_report(
@@ -233,7 +233,7 @@ async def _answer_payer_report(
         PeriodKind.MONTH,
         scope=scope,
     )
-    await _send_report_chart_or_empty(message, result)
+    await _send_report_chart_or_empty(message, result, scope=scope)
 
 
 def _command_args(message: Message) -> list[str]:
@@ -303,9 +303,16 @@ def _scope_or_none(value: TransactionScope | None | object) -> TransactionScope 
     return None
 
 
-async def _send_report_chart_or_empty(message: Message, result: ChartResult | None) -> None:
+async def _send_report_chart_or_empty(
+    message: Message,
+    result: ChartResult | None,
+    *,
+    scope: TransactionScope | None,
+) -> None:
     if result is None:
-        await message.answer("За период нет расходов для отчёта.")
+        await message.answer(
+            f"За период нет расходов для отчёта. Контур: {scope_filter_label(scope)}."
+        )
         return
 
     try:
